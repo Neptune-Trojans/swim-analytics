@@ -1,0 +1,17 @@
+[project]
+name = "swim-analytics"
+version = "0.1.0"
+description = "Swimming video analysis with pose overlays"
+requires-python = ">=3.10"
+dependencies = [
+    "opencv-python",
+    "mediapipe",
+    "numpy",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["swim"]

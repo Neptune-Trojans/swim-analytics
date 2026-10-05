@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.ipynb_checkpoints/
+.DS_Store
+
+data/input/*
+data/output/*
+!data/input/.gitkeep
+!data/output/.gitkeep
+*.mp4
+*.mov
