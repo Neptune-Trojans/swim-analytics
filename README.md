@@ -15,6 +15,7 @@ data/
   input/      # source swim videos
   output/     # processed videos
 notebooks/    # experiments
+research/     # research notes (one .md per topic)
 ```
 
 ## Usage
