@@ -18,7 +18,6 @@ swim/
 scripts/              # quick check scripts
   run_rfdetr.py             # video -> detections JSON + annotated video
   visualize_detections.py   # video + detections JSON -> annotated video (no model)
-  run_rtmlib.py             # video -> skeleton video (RTMPose)
 data/
   input/              # source swim videos
   output/             # processed videos
