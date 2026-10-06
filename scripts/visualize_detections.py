@@ -1,7 +1,5 @@
 """Draw saved person detections (JSON from run_rfdetr.py) on the video, without running the model again.
 
-The highest-score person in each frame is drawn in green, other persons in red.
-
 Usage:
     python scripts/visualize_detections.py --input data/input/IMG_4886.MOV
     python scripts/visualize_detections.py --input data/input/IMG_4886.MOV --detections data/output/IMG_4886_rfdetr.json --output data/output/test.mp4

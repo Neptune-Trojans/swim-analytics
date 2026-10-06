@@ -1,7 +1,6 @@
 """Quick check: run RF-DETR person detection on a video and save it with the boxes drawn.
 
 Saves two files: the video with boxes (<name>_rfdetr.mp4) and the detections (<name>_rfdetr.json).
-The highest-score person in each frame is drawn in green, other persons in red.
 To re-draw from the saved JSON without running the model again, use scripts/visualize_detections.py.
 
 Install:
