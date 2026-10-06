@@ -2,6 +2,7 @@
 
 Saves two files: the video with boxes (<name>_rfdetr.mp4) and the detections (<name>_rfdetr.json).
 The highest-score person in each frame is drawn in green, other persons in red.
+To re-draw from the saved JSON without running the model again, use scripts/visualize_detections.py.
 
 Install:
     pip install rfdetr
@@ -16,16 +17,13 @@ import sys
 import time
 from pathlib import Path
 
-import cv2
-
 # Allow `import swim` when running this script directly from the repo root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from swim.detections import FrameDetections, VideoDetections  # noqa: E402
 from swim.detectors.rfdetr_detector import RFDETRDetector  # noqa: E402
-
-BEST_COLOR = (0, 200, 0)  # BGR green
-OTHER_COLOR = (0, 0, 255)  # BGR red
+from swim.video import get_video_info, read_frames, resolve_output_path, video_writer  # noqa: E402
+from swim.visualization.detections import draw_detections  # noqa: E402
 
 
 def main() -> None:
@@ -36,66 +34,37 @@ def main() -> None:
     parser.add_argument("--threshold", type=float, default=0.5, help="Hide detections below this confidence")
     args = parser.parse_args()
 
-    # A folder (or a path without extension) gets the default file name <input>_rfdetr.mp4
-    output = Path(args.output)
-    if output.is_dir() or not output.suffix:
-        output = output / f"{Path(args.input).stem}_rfdetr.mp4"
-    output.parent.mkdir(parents=True, exist_ok=True)
+    output = resolve_output_path(args.output, args.input, "_rfdetr")
     json_output = output.with_suffix(".json")
-
-    cap = cv2.VideoCapture(args.input)
-    if not cap.isOpened():
-        raise SystemExit(f"Cannot open video: {args.input}")
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    writer = cv2.VideoWriter(str(output), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
-    if not writer.isOpened():
-        raise SystemExit(f"Cannot write video: {output}")
+    info = get_video_info(args.input)
 
     detector = RFDETRDetector(size=args.model, threshold=args.threshold)
-    video_dets = VideoDetections(video_path=args.input, fps=fps, width=width, height=height, model=detector.name)
+    video_dets = VideoDetections(
+        video_path=args.input, fps=info.fps, width=info.width, height=info.height, model=detector.name
+    )
 
-    print(f"{args.input}: {width}x{height} @ {fps:.1f} fps, {total} frames")
+    print(f"{args.input}: {info.width}x{info.height} @ {info.fps:.1f} fps, {info.frame_count} frames")
     start = time.time()
-    frame_idx = 0
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
+    with video_writer(output, info.fps, info.width, info.height) as writer:
+        for frame_idx, frame in enumerate(read_frames(args.input)):
+            frame_dets = FrameDetections(
+                frame_idx=frame_idx, timestamp=frame_idx / info.fps, detections=detector.detect(frame)
+            )
+            video_dets.frames.append(frame_dets)
+            writer.write(draw_detections(frame, frame_dets))
 
-        frame_dets = FrameDetections(frame_idx=frame_idx, timestamp=frame_idx / fps, detections=detector.detect(frame))
-        video_dets.frames.append(frame_dets)
+            if (frame_idx + 1) % 30 == 0:
+                print(f"  {frame_idx + 1}/{info.frame_count} frames ({(frame_idx + 1) / (time.time() - start):.1f} fps)")
 
-        best = frame_dets.best()
-        for det in frame_dets.detections:
-            color = BEST_COLOR if det is best else OTHER_COLOR
-            b = det.bbox
-            cv2.rectangle(frame, (int(b.x1), int(b.y1)), (int(b.x2), int(b.y2)), color, 3)
-            cv2.putText(frame, f"{det.label} {det.score:.2f}", (int(b.x1), max(int(b.y1) - 10, 20)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
-
-        cv2.putText(frame, f"frame {frame_idx}  persons: {len(frame_dets.detections)}", (20, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
-        writer.write(frame)
-
-        frame_idx += 1
-        if frame_idx % 30 == 0:
-            print(f"  {frame_idx}/{total} frames ({frame_idx / (time.time() - start):.1f} fps)")
-
-    cap.release()
-    writer.release()
     video_dets.to_json(json_output)
 
-    print(f"Done: {frame_idx} frames in {time.time() - start:.1f}s -> {output}")
+    n = len(video_dets.frames)
+    print(f"Done: {n} frames in {time.time() - start:.1f}s -> {output}")
     print(f"Detections saved -> {json_output}")
-    if frame_idx:
+    if n:
         found = sum(1 for f in video_dets.frames if f.detections)
         multi = sum(1 for f in video_dets.frames if len(f.detections) > 1)
-        print(f"Person found in {found}/{frame_idx} frames ({100 * found / frame_idx:.0f}%), "
-              f"more than one person in {multi} frames")
+        print(f"Person found in {found}/{n} frames ({100 * found / n:.0f}%), more than one person in {multi} frames")
 
 
 if __name__ == "__main__":

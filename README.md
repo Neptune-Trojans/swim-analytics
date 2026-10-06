@@ -7,14 +7,18 @@ Process a swimming video and overlay analysis layers (skeleton, joint angles, ve
 ```
 swim/
   main.py             # entry point: input video -> output video
-  video.py            # read frames / write output video
+  video.py            # video helpers: read frames, write video, output paths
   detections.py       # detection data classes (BBox, Detection, ...) + Detector contract
   detectors/          # one file per detection model
     rfdetr_detector.py
+  visualization/      # all drawing code (one file per data type)
+    detections.py     # draw detection boxes on frames
   pose.py             # pose model -> keypoints per frame
   metrics.py          # joint angles, velocity, speed
-  draw.py             # draw overlays on frames
-scripts/              # quick check scripts (run a model on a video)
+scripts/              # quick check scripts
+  run_rfdetr.py             # video -> detections JSON + annotated video
+  visualize_detections.py   # video + detections JSON -> annotated video (no model)
+  run_rtmlib.py             # video -> skeleton video (RTMPose)
 data/
   input/              # source swim videos
   output/             # processed videos
