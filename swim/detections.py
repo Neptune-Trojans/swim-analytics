@@ -82,8 +82,15 @@ class VideoDetections:
     frames: list[FrameDetections] = field(default_factory=list)
 
     def to_json(self, path: str | Path) -> None:
+        data = asdict(self)
+        # Round to keep the file short and readable; the model is not more precise than this
+        for f in data["frames"]:
+            f["timestamp"] = round(f["timestamp"], 4)
+            for d in f["detections"]:
+                d["bbox"] = {k: round(v, 2) for k, v in d["bbox"].items()}
+                d["score"] = round(d["score"], 4)
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        Path(path).write_text(json.dumps(asdict(self), indent=1))
+        Path(path).write_text(json.dumps(data, indent=1))
 
     @classmethod
     def from_json(cls, path: str | Path) -> VideoDetections:
