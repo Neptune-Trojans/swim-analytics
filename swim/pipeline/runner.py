@@ -1,23 +1,26 @@
 """The pipeline runner: runs the stages (swim/stages/) in order and saves each stage's output.
 
 Planned stages: detection -> filtering -> tracking -> swimmer -> pose -> metrics (see docs/pipeline.md).
-Implemented so far: detection.
+Implemented so far: detection, filtering.
 """
 
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from swim.pipeline.config import PipelineConfig
 from swim.stages.detection.stage import detect
 from swim.stages.detection.types import VideoDetections
+from swim.stages.filtering.stage import filter_detections
 from swim.utils.video import get_video_info
 
 # Implemented stages, in order
-STAGES = ["detection"]
+STAGES = ["detection", "filtering"]
 
 # Saved output of each stage: file name in the video's output folder, and its data class
 STAGE_OUTPUTS = {
     "detection": ("1_detections.json", VideoDetections),
+    "filtering": ("2_filtered.json", VideoDetections),
 }
 
 
@@ -26,6 +29,7 @@ class PipelineResult:
     """Output of every stage. None = that stage was not run (and not loaded)."""
 
     detections: VideoDetections | None = None
+    filtered: VideoDetections | None = None
 
 
 def run_pipeline(
@@ -48,7 +52,25 @@ def run_pipeline(
     get_video_info(video_path)  # fail before creating any output if the video can't be opened
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    config.to_json(output_dir / "config.json")
+    config_path = output_dir / "config.json"
+    if start_idx > 0 and config_path.exists():
+        # Stages before `start` are loaded, not run: record the settings their saved results were made with.
+        # Each stage's settings are the PipelineConfig field with the stage's name.
+        saved = json.loads(config_path.read_text())
+        loaded_settings = {
+            name: type(getattr(config, name))(**saved[name])
+            for name in STAGES[:start_idx]
+            if name in saved and hasattr(config, name)
+        }
+        config = replace(config, **loaded_settings)
+    config.to_json(config_path)
+
+    # Saved results of stages after `stop` were made from the old results of the stages about to run: remove them
+    for name in STAGES[stop_idx + 1:]:
+        path = output_dir / STAGE_OUTPUTS[name][0]
+        if path.exists():
+            path.unlink()
+            print(f"[{name}] removed outdated {path}")
 
     def stage(name, run):
         idx = STAGES.index(name)
@@ -71,6 +93,8 @@ def run_pipeline(
     result = PipelineResult()
     # 1. Detection: all persons in every frame
     result.detections = stage("detection", lambda: detect(video_path, config.detection))
+    # 2. Filtering: remove problematic detections (kept as "rejected" with the reason)
+    result.filtered = stage("filtering", lambda: filter_detections(result.detections, config.filtering))
     return result
 
 
@@ -84,4 +108,4 @@ def load_results(output_dir: str | Path) -> PipelineResult:
             loaded[name] = data_cls.from_json(output_dir / filename)
     if not loaded:
         raise FileNotFoundError(f"No saved results in {output_dir}: run the pipeline first")
-    return PipelineResult(detections=loaded.get("detection"))
+    return PipelineResult(detections=loaded.get("detection"), filtered=loaded.get("filtering"))

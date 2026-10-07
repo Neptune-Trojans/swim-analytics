@@ -57,6 +57,14 @@ class Detection:
     track_id: int | None = None  # filled later by the tracker; None straight from the detector
 
 
+@dataclass(frozen=True)
+class RejectedDetection:
+    """A detection removed by the filtering stage, kept with the reason for debugging."""
+
+    detection: Detection
+    reason: str  # name of the filter that removed it, e.g. "min_score"
+
+
 @dataclass
 class FrameDetections:
     """All detections in one frame. An empty list means nothing was found."""
@@ -64,6 +72,7 @@ class FrameDetections:
     frame_idx: int
     timestamp: float  # seconds from video start (frame_idx / fps)
     detections: list[Detection] = field(default_factory=list)
+    rejected: list[RejectedDetection] = field(default_factory=list)  # removed by filtering; empty before it
 
     def best(self) -> Detection | None:
         """Highest-score detection, or None if the frame is empty."""
@@ -86,7 +95,7 @@ class VideoDetections:
         # Round to keep the file short and readable; the model is not more precise than this
         for f in data["frames"]:
             f["timestamp"] = round(f["timestamp"], 4)
-            for d in f["detections"]:
+            for d in f["detections"] + [r["detection"] for r in f["rejected"]]:
                 d["bbox"] = {k: round(v, 2) for k, v in d["bbox"].items()}
                 d["score"] = round(d["score"], 4)
         Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -95,19 +104,17 @@ class VideoDetections:
     @classmethod
     def from_json(cls, path: str | Path) -> VideoDetections:
         data = json.loads(Path(path).read_text())
+
+        def detection(d: dict) -> Detection:
+            return Detection(bbox=BBox(**d["bbox"]), score=d["score"], label=d["label"], track_id=d["track_id"])
+
         frames = [
             FrameDetections(
                 frame_idx=f["frame_idx"],
                 timestamp=f["timestamp"],
-                detections=[
-                    Detection(
-                        bbox=BBox(**d["bbox"]),
-                        score=d["score"],
-                        label=d["label"],
-                        track_id=d["track_id"],
-                    )
-                    for d in f["detections"]
-                ],
+                detections=[detection(d) for d in f["detections"]],
+                # Files saved before filtering existed have no "rejected"
+                rejected=[RejectedDetection(detection(r["detection"]), r["reason"]) for r in f.get("rejected", [])],
             )
             for f in data.pop("frames")
         ]

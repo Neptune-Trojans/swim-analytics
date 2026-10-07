@@ -18,16 +18,21 @@ swim/
       types.py        #     output data classes (BBox, Detection, ...) + Detector contract
       stage.py        #     detect(): the function the runner calls
       rfdetr_detector.py
+    filtering/        #   stage 2: remove problematic detections (kept as "rejected" with the reason)
+      stage.py        #     filter_detections(): runs the filters in order
+      min_score.py    #     low confidence
+      duplicates.py   #     boxes overlapping too much (keeps the higher score)
   visualization/      # one drawing layer per stage output
-    detections.py     #   draw detection boxes
+    detections.py     #   draw detection boxes (rejected ones in gray with the reason)
     render.py         #   draw the chosen layers on the video
   utils/              # shared helpers, not specific to any stage (one file per topic)
     video.py          #   read frames, write video, video info
+tests/                # unit tests, same folder structure as swim/
 data/
   input/              # source swim videos
   output/             # results, one folder per video
 docs/                 # design documents
-notebooks/            # experiments
+notebooks/            # experiments (detection_stats.ipynb: statistics of detected boxes)
 research/             # research notes (one .md per topic)
 ```
 
@@ -40,6 +45,13 @@ python3 -m venv .venv
 .venv/bin/python -m swim.run --input data/input/IMG_4884.MOV                  # run all stages + video
 .venv/bin/python -m swim.run --input data/input/IMG_4884.MOV --render-only    # re-draw saved results only
 .venv/bin/python -m swim.run --help
+```
+
+## Tests
+
+```bash
+.venv/bin/pip install pytest
+.venv/bin/python -m pytest
 ```
 
 Results are saved to `data/output/<video name>/`: `config.json`, one JSON per stage (`1_detections.json`, ...)

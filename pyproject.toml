@@ -15,3 +15,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["swim"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

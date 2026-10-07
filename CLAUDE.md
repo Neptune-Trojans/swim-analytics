@@ -21,11 +21,14 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
 - All processing goes through `run_pipeline()` in `swim/pipeline/runner.py`, run with `python -m swim.run`.
   No separate scripts with their own processing loops.
 - `swim/pipeline/` is the runner (order, save/load, settings); `swim/stages/` holds the steps
-- One folder per stage under `swim/stages/` (`detection/`, later `filtering/`, `tracking/`, `pose/`, `metrics/`),
-  each with: `types.py` (output data classes + model contract, no model-specific code), `stage.py` (the function
-  the runner calls), and one file per model or rule
-- Adding a stage: add it to `STAGES` / `STAGE_OUTPUTS` / `PipelineResult` in `swim/pipeline/runner.py`, its settings
-  to `swim/pipeline/config.py`, and its drawing layer to `swim/visualization/` + `LAYERS` in `render.py`
+- One folder per stage under `swim/stages/` (`detection/`, `filtering/`, later `tracking/`, `pose/`, `metrics/`),
+  each with: `types.py` (output data classes + model contract, no model-specific code; only if the stage has its
+  own output format), `stage.py` (the function the runner calls), and one file per model or rule
+- Filtering outputs the same `VideoDetections` as detection: `detections` = kept, `rejected` = removed + reason.
+  Later stages use only `detections`.
+- Adding a stage: add it to `STAGES` / `STAGE_OUTPUTS` / `PipelineResult` / `load_results()` in
+  `swim/pipeline/runner.py`, its settings to `swim/pipeline/config.py` as a field named exactly like the stage
+  (the runner relies on this), and its drawing layer to `swim/visualization/` + `LAYERS` in `render.py`
 - Import heavy model packages (torch, rfdetr) inside the function that creates the model, so `--render-only` and
   loading saved results stay fast
 - `swim/utils/`: shared helpers used by several parts (runner, stages, visualization). Two rules:
@@ -35,6 +38,7 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
 
 ## Testing
 
+- Unit tests: `.venv/bin/python -m pytest`; files in `tests/`, same folder structure as `swim/`
 - Short clip: `data/input/IMG_4886.MOV` (93 frames, one swimmer); several persons: `IMG_4884.MOV`
 - Write test outputs to a temp folder (`--output <tmp>`), not `data/output/` (the user's own results)
 - Look at a few output frames, not only whether the script ran

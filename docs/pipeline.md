@@ -1,6 +1,6 @@
 # Pipeline Design
 
-_Agreed: 2026-10-07. Status: step 1 implemented (see "Build order")._
+_Agreed: 2026-10-07. Status: steps 1–2 implemented (see "Build order")._
 
 Goal: one clear pipeline, used everywhere (command line, notebooks, future apps), where every step is visible:
 detection, filtering, tracking, choosing the swimmer, pose (skeleton), metrics.
@@ -40,6 +40,8 @@ Stage names (used on the command line): `detection`, `filtering`, `tracking`, `s
 3. **Recorded videos only.** Each stage processes the whole video, then saves its output. Later steps need the whole
    video anyway (removing short tracks, filling gaps, smoothing speed look backwards and forwards in time).
 4. **Every stage output is saved**, so any stage can be re-run from saved results without re-running the models.
+   Re-running a stage deletes the saved results of the stages after it (they are outdated), and `config.json`
+   always records the settings each saved result was made with.
 5. **One output folder per video**, files numbered by stage, plus the settings used.
 6. **One command for everything:** `python -m swim.run`. No separate scripts with their own processing loops.
 7. **Visualization draws layers**, one per stage output, so each stage can be viewed (and debugged) on its own.
@@ -104,7 +106,8 @@ Each step leaves a pipeline that works end to end.
 
 - [x] 1. `run.py`, `pipeline/` (runner + config); move detection into `stages/detection/`; pipeline runs detection only and
   renders the detections layer. Replaces `scripts/run_rfdetr.py` and `scripts/visualize_detections.py`.
-- [ ] 2. Filtering (after analyzing our saved detections, see `research/detection-filtering.md`)
+- [x] 2. Filtering: `min_score` (default 0.4) and `duplicate` (IoU > 0.5, keep the higher score) filters; removed
+  detections are kept in `rejected` with the reason and drawn in gray. Unit tests in `tests/stages/filtering/`.
 - [ ] 3. Tracking
 - [ ] 4. Choosing the swimmer
 - [ ] 5. Pose

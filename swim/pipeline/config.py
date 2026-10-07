@@ -13,8 +13,15 @@ class DetectionConfig:
 
 
 @dataclass
+class FilteringConfig:
+    min_score: float = 0.4  # remove detections below this confidence (0 = off)
+    max_iou: float = 0.5  # of two boxes overlapping more than this (IoU), keep the higher score (1 = off)
+
+
+@dataclass
 class PipelineConfig:
     detection: DetectionConfig = field(default_factory=DetectionConfig)
+    filtering: FilteringConfig = field(default_factory=FilteringConfig)
 
     def to_json(self, path: str | Path) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
