@@ -1,6 +1,6 @@
 """Person detection data types and the Detector contract.
 
-These are the stable output format of every detector. Detector implementations live in swim/detectors/.
+The stable output format of stage 1 (detection). Detector implementations live next to this file.
 """
 
 from __future__ import annotations

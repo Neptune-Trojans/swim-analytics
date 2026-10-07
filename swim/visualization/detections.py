@@ -3,7 +3,7 @@
 import cv2
 import numpy as np
 
-from swim.detections import FrameDetections
+from swim.stages.detection.types import FrameDetections
 
 BOX_COLOR = (0, 0, 255)  # BGR red: all detection boxes
 INFO_COLOR = (255, 255, 255)  # BGR white: frame info text

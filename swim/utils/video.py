@@ -61,11 +61,3 @@ def video_writer(path: str | Path, fps: float, width: int, height: int) -> Itera
         yield writer
     finally:
         writer.release()
-
-
-def resolve_output_path(output: str | Path, input_path: str | Path, suffix: str) -> Path:
-    """Use `output` as the file path, or if it is a folder (or has no extension) put <input-name><suffix>.mp4 in it."""
-    output = Path(output)
-    if output.is_dir() or not output.suffix:
-        output = output / f"{Path(input_path).stem}{suffix}.mp4"
-    return output

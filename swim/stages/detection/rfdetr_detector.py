@@ -5,7 +5,7 @@ import numpy as np
 import rfdetr
 from rfdetr.assets.coco_classes import COCO_CLASSES
 
-from swim.detections import BBox, Detection
+from swim.stages.detection.types import BBox, Detection
 
 
 class RFDETRDetector:
