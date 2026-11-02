@@ -5,6 +5,8 @@ Drives headless Chrome (DevTools protocol) against the app, on a generated H.264
 own index as a row of black / white squares (binary), so the picture on screen can be read back exactly. Each frame
 has one box whose x position depends on the frame index, so the overlay can be read back too.
 
+Also: changing a setting in the settings panel re-runs filtering and shows the new results.
+
 Skipped without Chrome (or set CHROME_PATH). Leave it out with: pytest -m "not browser"
 """
 
@@ -22,6 +24,7 @@ import numpy as np
 import pytest
 
 from swim.app.server import create_app
+from swim.pipeline.config import PipelineConfig
 from swim.stages.detection.types import BBox, Detection, FrameDetections, VideoDetections
 from swim.utils.video import video_writer
 
@@ -34,6 +37,7 @@ FPS, WIDTH, HEIGHT, FRAMES = 30.0, 640, 360, 90
 BITS, SQUARE, SQUARE_X0, SQUARE_STEP, SQUARE_Y = 7, 64, 24, 84, 40  # frame index as squares, bit k at x0 + k * step
 BOX_X0, BOX_STEP, BOX_Y1, BOX_Y2 = 20, 6, 200, 330  # frame i's box starts at x = BOX_X0 + i * BOX_STEP
 VIDEO_NAME = "test_video"
+SETTINGS_VIDEO = "test_video_settings"  # a separate results folder: its test re-runs filtering
 
 # Read back, in the page: the frame index shown in the video, the frame whose box the overlay draws, the frame label
 PAGE_HELPERS = f"""
@@ -112,6 +116,9 @@ def server(tmp_path_factory):
     root = tmp_path_factory.mktemp("viewer")
     write_test_video(root / "input" / "test.mp4")
     write_test_results(root / "output" / VIDEO_NAME, root / "input" / "test.mp4")
+    write_test_results(root / "output" / SETTINGS_VIDEO, root / "input" / "test.mp4")
+    settings = PipelineConfig().with_changes({"detection": {"threshold": 0.5}})
+    settings.to_json(root / "output" / SETTINGS_VIDEO / "config.json")
 
     port = free_port()
     app_server = uvicorn.Server(uvicorn.Config(create_app(root / "output"), host="127.0.0.1", port=port, log_level="warning"))
@@ -211,8 +218,17 @@ class Viewer:
             time.sleep(0.05)
         return self.label()
 
-    def open(self, frame: int) -> None:
-        self.chrome.cdp("Page.navigate", url=f"{self.base_url}/?video={VIDEO_NAME}&frame={frame}")
+    def wait_for(self, expression: str, done, timeout: float = 15):
+        """Evaluate `expression` until `done(value)`; return the last value."""
+        deadline = time.time() + timeout
+        value = self.chrome.js(expression)
+        while not done(value) and time.time() < deadline:
+            time.sleep(0.05)
+            value = self.chrome.js(expression)
+        return value
+
+    def open(self, frame: int, video: str = VIDEO_NAME) -> None:
+        self.chrome.cdp("Page.navigate", url=f"{self.base_url}/?video={video}&frame={frame}")
         if self.wait_label(frame) != frame:
             error = self.chrome.js("document.getElementById('video').error?.code ?? null")
             if error == 4:
@@ -293,3 +309,25 @@ def test_label_and_overlay_follow_the_video_while_playing(viewer):
     assert len(samples) >= 10
     assert all(label == screen == overlay for label, screen, overlay in samples), samples
     assert samples[-1][1] > samples[0][1]  # the video advanced
+
+
+def test_changing_a_setting_reruns_and_shows_the_new_results(viewer):
+    js = viewer.chrome.js
+    viewer.open(5, video=SETTINGS_VIDEO)
+    assert viewer.shown() == (5, 5, 5)  # detections layer: the frame's red box
+    assert js("!document.getElementById('settings-hint').hidden")  # min_score 0.1 < detection threshold 0.5
+
+    js("""(() => {
+      const input = document.getElementById('setting-filtering-min_score');
+      input.value = '0.95';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('apply-settings').click();
+    })()""")
+    status = viewer.wait_for("document.getElementById('settings-status').textContent",
+                             lambda text: text.startswith(("Done", "Re-run failed")))
+
+    assert status.startswith("Done"), status
+    assert js("document.getElementById('settings-hint').hidden")
+    assert js("document.getElementById('frame-title').textContent") == "Frame 5 · filtered"  # new layer shown
+    assert viewer.shown() == (5, 5, None)  # every box scores 0.9 < 0.95: rejected, drawn gray, no red box
+    assert "min_score" in js("document.getElementById('frame-boxes').textContent")

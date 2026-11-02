@@ -28,7 +28,8 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
   Later stages use only `detections`.
 - Adding a stage: add it to `STAGES` / `STAGE_OUTPUTS` / `PipelineResult` / `load_results()` in
   `swim/pipeline/runner.py`, its settings to `swim/pipeline/config.py` as a field named exactly like the stage
-  (the runner relies on this), and its drawing layer to `swim/visualization/` + `LAYERS` in `render.py` and to
+  (the runner relies on this), each setting declared with `setting(default, help, min, max, step)`: a short `help`
+  (the viewer's settings panel shows it, and checks the range), and its drawing layer to `swim/visualization/` + `LAYERS` in `render.py` and to
   `swim/app/static/layers.js` (`LAYERS` there too: same layer name and look, for the browser viewer)
 - `swim/app/`: the local web app (`python -m swim.app`, design in `docs/app.md`). It reads saved results; processing
   goes through `run_pipeline()` there too. Plain HTML / CSS / JS (ES modules), no build step, no framework

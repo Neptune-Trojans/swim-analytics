@@ -4,7 +4,6 @@ Planned stages: detection -> filtering -> tracking -> swimmer -> pose -> metrics
 Implemented so far: detection, filtering.
 """
 
-import json
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -56,13 +55,8 @@ def run_pipeline(
     if start_idx > 0 and config_path.exists():
         # Stages before `start` are loaded, not run: record the settings their saved results were made with.
         # Each stage's settings are the PipelineConfig field with the stage's name.
-        saved = json.loads(config_path.read_text())
-        loaded_settings = {
-            name: type(getattr(config, name))(**saved[name])
-            for name in STAGES[:start_idx]
-            if name in saved and hasattr(config, name)
-        }
-        config = replace(config, **loaded_settings)
+        saved = PipelineConfig.from_json(config_path)
+        config = replace(config, **{name: getattr(saved, name) for name in STAGES[:start_idx] if hasattr(config, name)})
     config.to_json(config_path)
 
     # Saved results of stages after `stop` were made from the old results of the stages about to run: remove them

@@ -28,12 +28,14 @@ def write_results(folder, video, stages=("1_detections.json",)):
 
 @pytest.fixture
 def output(tmp_path):
-    """Results root with: IMG_1 (detection + filtering), IMG_2 (video missing), empty (no results)."""
+    """Results root with: IMG_1 (detection + filtering), IMG_2 (video missing), IMG_3 (detection only),
+    empty (no results)."""
     root = tmp_path / "output"
     video = tmp_path / "input" / "IMG_1.mp4"
     write_video(video)
     write_results(root / "IMG_1", video, ("1_detections.json", "2_filtered.json"))
     write_results(root / "IMG_2", tmp_path / "input" / "gone.MOV")
+    write_results(root / "IMG_3", video)
     (root / "empty").mkdir()
     return root
 
@@ -47,6 +49,7 @@ def test_lists_folders_with_results(client):
     assert client.get("/api/videos").json() == [
         {"name": "IMG_1", "stages": ["detection", "filtering"], "video_found": True},
         {"name": "IMG_2", "stages": ["detection"], "video_found": False},
+        {"name": "IMG_3", "stages": ["detection"], "video_found": True},
     ]
 
 
@@ -58,7 +61,10 @@ def test_details_have_settings_and_video_info(client):
     details = client.get("/api/videos/IMG_1").json()
 
     assert details["stages"] == ["detection", "filtering"]
-    assert details["config"]["filtering"] == {"min_score": 0.4, "max_iou": 0.5}
+    assert details["editable_stages"] == ["filtering"]
+    min_score = details["settings"]["filtering"][0]
+    assert (min_score["name"], min_score["value"], min_score["min"], min_score["max"]) == ("min_score", 0.1, 0, 1)
+    assert min_score["help"]
     assert details["video"]["frame_count"] == 10
     assert (details["video"]["width"], details["video"]["height"]) == (64, 48)
 
@@ -101,3 +107,38 @@ def test_serves_the_page(client):
     assert "<html" in client.get("/").text
     assert client.get("/static/viewer.js").status_code == 200
     assert client.get("/static/layers.js").status_code == 200
+
+
+def test_rerun_with_changed_settings_saves_new_results(client, output):
+    response = client.post("/api/videos/IMG_1/rerun", json={"settings": {"filtering": {"min_score": 0.95}}})
+
+    assert response.status_code == 200
+    assert response.json()["settings"]["filtering"][0]["value"] == 0.95
+    filtered = json.loads((output / "IMG_1" / "2_filtered.json").read_text())
+    assert all(f["detections"] == [] for f in filtered["frames"])  # every box scores 0.9 < 0.95
+    assert {r["reason"] for f in filtered["frames"] for r in f["rejected"]} == {"min_score"}
+    config = json.loads((output / "IMG_1" / "config.json").read_text())
+    assert config["filtering"]["min_score"] == 0.95
+    assert config["detection"] == {"model": "rfdetr", "size": "medium", "threshold": 0.1}  # unchanged
+
+
+def test_rerun_creates_results_of_stages_not_run_yet(client, output):
+    response = client.post("/api/videos/IMG_3/rerun", json={"settings": {"filtering": {"max_iou": 0.6}}})
+
+    assert response.status_code == 200
+    assert response.json()["stages"] == ["detection", "filtering"]
+    assert (output / "IMG_3" / "2_filtered.json").exists()
+
+
+@pytest.mark.parametrize("url, settings, status", [
+    ("/api/videos/IMG_1/rerun", {"detection": {"threshold": 0.3}}, 400),  # detection: command line only
+    ("/api/videos/IMG_1/rerun", {"filtering": {"min_score": 2}}, 400),
+    ("/api/videos/IMG_1/rerun", {"filtering": {"nope": 1}}, 400),
+    ("/api/videos/IMG_2/rerun", {"filtering": {"min_score": 0.3}}, 400),  # video missing
+    ("/api/videos/unknown/rerun", {"filtering": {"min_score": 0.3}}, 404),
+])
+def test_rerun_rejects_bad_requests(client, output, url, settings, status):
+    before = (output / "IMG_1" / "config.json").read_text()
+
+    assert client.post(url, json={"settings": settings}).status_code == status
+    assert (output / "IMG_1" / "config.json").read_text() == before

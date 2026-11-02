@@ -12,6 +12,8 @@ const state = {
   name: null,
   details: null, // GET /api/videos/<name>: saved stages, settings used, video size / fps / frame count
   layers: {}, // layer name -> {data: saved stage output, frames: frame_idx -> frame}
+  available: [], // layers with saved results, pipeline order
+  rerunning: false, // a re-run with changed settings is in progress
   enabled: new Set(), // layers switched on
   fps: 30,
   frameCount: 0,
@@ -93,19 +95,7 @@ async function openVideo(name, startFrame) {
   state.name = name;
   document.title = `${name} · swim-analytics`;
   state.details = await getJSON(api(name));
-
-  // Load the saved output of every stage that has a drawing layer
-  const available = Object.keys(LAYERS).filter((layer) => state.details.stages.includes(LAYERS[layer].stage));
-  if (!available.length) throw new Error(`No layer can draw the saved results of '${name}' (${state.details.stages.join(", ")})`);
-  await Promise.all(available.map(async (layer) => {
-    const data = await getJSON(api(name, `/results/${LAYERS[layer].stage}`));
-    const frames = [];
-    for (const f of data.frames) {
-      f.rejected ??= []; // files saved before the filtering stage existed have no "rejected"
-      frames[f.frame_idx] = f;
-    }
-    state.layers[layer] = { data, frames };
-  }));
+  const available = await loadLayers();
 
   const first = state.layers[available[0]].data;
   state.fps = first.fps;
@@ -119,11 +109,33 @@ async function openVideo(name, startFrame) {
   $("player").style.setProperty("--ar", state.width / state.height);
   $("viewer").hidden = false;
   buildLayerToggles();
-  showSettings();
+  buildSettings();
   checkResults();
   setupVideo(startFrame);
   setupControls();
   setupTimeline();
+  setupSettings();
+}
+
+// Load the saved output of every stage that has a drawing layer. Returns those layers, in pipeline order.
+async function loadLayers() {
+  const available = Object.keys(LAYERS).filter((layer) => state.details.stages.includes(LAYERS[layer].stage));
+  if (!available.length) {
+    throw new Error(`No layer can draw the saved results of '${state.name}' (${state.details.stages.join(", ")})`);
+  }
+  const layers = {};
+  await Promise.all(available.map(async (layer) => {
+    const data = await getJSON(api(state.name, `/results/${LAYERS[layer].stage}`));
+    const frames = [];
+    for (const f of data.frames) {
+      f.rejected ??= []; // files saved before the filtering stage existed have no "rejected"
+      frames[f.frame_idx] = f;
+    }
+    layers[layer] = { data, frames };
+  }));
+  state.layers = layers;
+  state.available = available;
+  return available;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -329,7 +341,8 @@ function setupControls() {
   });
 
   document.addEventListener("keydown", (e) => {
-    if (e.target.closest("select, input, textarea") || e.metaKey || e.ctrlKey || e.altKey) return;
+    // Keys typed in the settings form (or any input) are for the form, not the player
+    if (e.target.closest("select, input, textarea, form") || e.metaKey || e.ctrlKey || e.altKey) return;
     const actions = {
       " ": togglePlay,
       ArrowLeft: () => step(e.shiftKey ? -10 : -1),
@@ -440,40 +453,182 @@ function boxRow(kind, index, detection, name) {
   return li;
 }
 
-function showSettings() {
-  const { config, stages } = state.details;
-  const dl = $("settings");
-  if (!config) {
-    dl.replaceChildren(el("dd", "muted", "No config.json"));
-    return;
-  }
-  // Only stages with saved results: config.json may also hold settings of stages that were not run
-  const rows = stages.filter((stage) => config[stage]).flatMap((stage) => [
-    el("dt", "", stage),
-    el("dd", "", Object.entries(config[stage]).map(([key, value]) => `${key} ${value}`).join(" · ")),
-  ]);
-  dl.replaceChildren(...rows);
-}
-
+// Warnings about the results (checked again after a re-run); other warnings (browser support) stay
 function checkResults() {
+  for (const li of document.querySelectorAll("#warnings li.result")) li.remove();
+  $("warnings-section").hidden = !$("warnings").children.length;
   const v = state.details.video;
   if (!v) {
-    addWarning(`Video file not found: ${state.details.video_path}`);
+    addWarning(`Video file not found: ${state.details.video_path}`, "result");
     return;
   }
   for (const [layer, { data }] of Object.entries(state.layers)) {
     if (data.width !== v.width || data.height !== v.height) {
-      addWarning(`${layer}: made on a ${data.width}×${data.height} video, this one is ${v.width}×${v.height} (wrong results folder?)`);
+      addWarning(`${layer}: made on a ${data.width}×${data.height} video, this one is ${v.width}×${v.height} (wrong results folder?)`, "result");
     }
     if (data.frames.length !== v.frame_count) {
-      addWarning(`${layer}: results for ${data.frames.length} frames, the video has ${v.frame_count}`);
+      addWarning(`${layer}: results for ${data.frames.length} frames, the video has ${v.frame_count}`, "result");
     }
   }
 }
 
-function addWarning(text) {
+function addWarning(text, className = "") {
   $("warnings-section").hidden = false;
-  $("warnings").append(el("li", "", text));
+  $("warnings").append(el("li", className, text));
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Settings: every stage's settings with a short explanation (from swim/pipeline/config.py). Those of the fast stages
+// (filtering on) can be changed: Apply re-runs them from the saved detections (POST /rerun), which saves the new
+// results, and the page shows them.
+
+function buildSettings() {
+  const { settings, editable_stages: editable, settings_saved: saved } = state.details;
+  const groups = Object.entries(settings).map(([stage, fields]) => {
+    if (!editable.includes(stage)) {
+      // Read-only: folded to one line of values, the explanations open on click
+      const group = el("details", "settings-group fixed");
+      const summary = el("summary");
+      summary.append(el("strong", "", stage), el("span", "settings-values", fields.map((f) => `${f.name} ${f.value}`).join(" · ")));
+      group.append(summary, ...fields.map(fixedSetting),
+        el("p", "settings-note", `Re-running ${stage} takes minutes: change it on the command line.`));
+      return group;
+    }
+    const group = el("fieldset", "settings-group");
+    group.append(el("legend", "", stage));
+    for (const f of fields) group.append(typeof f.value === "number" ? numberSetting(stage, f) : fixedSetting(f));
+    return group;
+  });
+  if (!saved) groups.unshift(el("p", "settings-note", "No config.json: showing the default settings."));
+  $("settings").replaceChildren(...groups);
+  $("apply-settings").textContent = `Apply: re-run ${editable.join(" → ")}`;
+  updateSettingsState();
+}
+
+function numberSetting(stage, f) {
+  const id = `setting-${stage}-${f.name}`;
+  const range = el("input");
+  range.type = "range";
+  range.tabIndex = -1; // the number field next to it is the one for the keyboard
+  const number = el("input");
+  number.type = "number";
+  number.id = id;
+  number.required = true;
+  for (const input of [range, number]) {
+    if (f.min !== null) input.min = f.min;
+    if (f.max !== null) input.max = f.max;
+    input.step = f.step ?? "any";
+    input.value = f.value;
+  }
+  Object.assign(number.dataset, { stage, name: f.name, saved: f.value });
+  range.addEventListener("input", () => {
+    number.value = range.value;
+    updateSettingsState();
+  });
+  number.addEventListener("input", () => {
+    range.value = number.value;
+    updateSettingsState();
+  });
+
+  const label = el("label", "setting-name", f.name);
+  label.htmlFor = id;
+  const controls = el("div", "setting-controls");
+  controls.append(range, number);
+  const row = el("div", "setting");
+  row.append(label, controls, el("p", "setting-help", f.help));
+  return row;
+}
+
+function fixedSetting(f) {
+  const head = el("div", "setting-head");
+  head.append(el("span", "setting-name", f.name), el("span", "setting-value", String(f.value)));
+  const row = el("div", "setting");
+  row.append(head, el("p", "setting-help", f.help));
+  return row;
+}
+
+const settingInputs = () => [...document.querySelectorAll("#settings input[type=number]")];
+
+// A value is usable if present and in range (any decimal is fine, not only multiples of the slider step)
+function usable(input) {
+  const v = input.validity;
+  return !(v.valueMissing || v.badInput || v.rangeUnderflow || v.rangeOverflow);
+}
+
+function changedSettings() {
+  const changes = {};
+  for (const input of settingInputs()) {
+    if (input.value === "" || Number(input.value) === Number(input.dataset.saved)) continue;
+    (changes[input.dataset.stage] ??= {})[input.dataset.name] = Number(input.value);
+  }
+  return changes;
+}
+
+function updateSettingsState() {
+  const inputs = settingInputs();
+  for (const input of inputs) {
+    const row = input.closest(".setting");
+    row.classList.toggle("changed", input.value !== "" && Number(input.value) !== Number(input.dataset.saved));
+    row.classList.toggle("invalid", !usable(input));
+  }
+  const changed = Object.keys(changedSettings()).length > 0;
+  $("apply-settings").disabled = !changed || !inputs.every(usable) || state.rerunning;
+  $("reset-settings").hidden = !changed || state.rerunning;
+
+  // A min_score below the detection threshold removes nothing: boxes below the threshold were never saved
+  const minScore = inputs.find((i) => i.dataset.stage === "filtering" && i.dataset.name === "min_score");
+  const threshold = state.details.settings.detection?.find((f) => f.name === "threshold")?.value;
+  const hint = $("settings-hint");
+  hint.hidden = !(minScore && usable(minScore) && threshold !== undefined && Number(minScore.value) < threshold);
+  hint.textContent = `Detection kept only boxes scoring above ${threshold}, so a lower min_score changes nothing. ` +
+    "For weaker boxes, re-run detection with a lower --detection-threshold.";
+}
+
+function setupSettings() {
+  $("settings-form").addEventListener("submit", applySettings);
+  $("reset-settings").addEventListener("click", () => {
+    buildSettings();
+    $("settings-status").textContent = "";
+  });
+}
+
+async function applySettings(event) {
+  event.preventDefault();
+  const changes = changedSettings();
+  if (!Object.keys(changes).length || state.rerunning) return;
+  const status = $("settings-status");
+  state.rerunning = true;
+  updateSettingsState();
+  status.className = "settings-status";
+  status.textContent = `Re-running ${state.details.editable_stages.join(" → ")}…`;
+  try {
+    const response = await fetch(api(state.name, "/rerun"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ settings: changes }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(typeof body.detail === "string" ? body.detail : `${response.status} ${response.statusText}`);
+
+    const before = state.available.join();
+    state.details = body;
+    const available = await loadLayers();
+    // A stage that had no results before (e.g. filtering never run): show its layer, as when opening the video
+    if (available.join() !== before) state.enabled = new Set([available.at(-1)]);
+    timelineBars = null;
+    lastShown = null;
+    buildLayerToggles();
+    buildSettings();
+    checkResults();
+    showFrame(state.frame);
+    status.textContent = `Done in ${body.seconds.toFixed(2)} s, results saved.`;
+  } catch (error) {
+    status.className = "settings-status error";
+    status.textContent = `Re-run failed: ${error.message}`;
+  } finally {
+    state.rerunning = false;
+    updateSettingsState();
+  }
 }
 
 main().catch((e) => showError(e.message));

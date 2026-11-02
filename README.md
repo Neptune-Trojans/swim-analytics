@@ -79,7 +79,9 @@ Watch processed videos in the browser, with the results drawn on top:
 ```
 
 Then open <http://127.0.0.1:8000> in **Chrome or Safari** (iPhone videos are HEVC; Firefox may not play them) and pick a
-video. Stop the viewer with `Ctrl+C`. Options: `--port 8080` (another port), `--output <folder>` (another results
+video. In the **Settings** panel you can change the filtering settings (e.g. `min_score`) and press **Apply**: filtering
+re-runs from the saved detections in a moment, the results are saved and shown on the video. Stop the viewer with
+`Ctrl+C`. Options: `--port 8080` (another port), `--output <folder>` (another results
 folder). See [docs/app.md](docs/app.md).
 
 ## Tests

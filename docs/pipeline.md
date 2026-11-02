@@ -108,7 +108,7 @@ Each step leaves a pipeline that works end to end.
 
 - [x] 1. `run.py`, `pipeline/` (runner + config); move detection into `stages/detection/`; pipeline runs detection only and
   renders the detections layer. Replaces `scripts/run_rfdetr.py` and `scripts/visualize_detections.py`.
-- [x] 2. Filtering: `min_score` (default 0.4) and `duplicate` (IoU > 0.5, keep the higher score) filters; removed
+- [x] 2. Filtering: `min_score` and `duplicate` (IoU > 0.5, keep the higher score) filters; removed
   detections are kept in `rejected` with the reason and drawn in gray. Unit tests in `tests/stages/filtering/`.
 - [ ] 3. Tracking
 - [ ] 4. Choosing the swimmer
@@ -121,3 +121,7 @@ Each step leaves a pipeline that works end to end.
 - Runner and stages in separate folders: **yes** (`swim/pipeline/` and `swim/stages/`)
 - Live / real-time video: **not needed**, recorded videos only
 - Command line entry point: **`python -m swim.run`**
+- Detection threshold **0.1** and filtering `min_score` **0.1** (2026-11-02, were 0.5 and 0.4): RF-DETR has no NMS,
+  the threshold is only a score cut. Tracking (ByteTrack) uses low-score boxes to continue tracks of a half-submerged
+  swimmer, so they must reach it; duplicates are removed by the filtering stage's NMS (`max_iou`). `min_score` stays
+  as a setting (viewer settings panel) for trackers without a low-score pass.

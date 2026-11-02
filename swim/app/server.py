@@ -1,22 +1,36 @@
-"""Local web server for the browser app (docs/app.md): lists processed videos, serves their video and stage results.
+"""Local web server for the browser app (docs/app.md): lists processed videos, serves their video and stage results,
+and re-runs the fast stages with settings changed in the page.
 
-Start it with `python -m swim.app`. It only reads saved results; processing goes through run_pipeline().
+Start it with `python -m swim.app`. Processing goes through run_pipeline(), as on the command line.
 """
 
 import json
+import threading
+import time
 from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
-from swim.pipeline.runner import STAGE_OUTPUTS, STAGES
+from swim.pipeline.config import PipelineConfig, describe
+from swim.pipeline.runner import STAGE_OUTPUTS, STAGES, run_pipeline
 from swim.utils.video import get_video_info
 
 STATIC_DIR = Path(__file__).parent / "static"
 
 VIDEO_MEDIA_TYPES = {".mov": "video/quicktime", ".mp4": "video/mp4", ".m4v": "video/mp4"}
+
+# The page can change the settings of the stages from RERUN_FROM on and re-run them from the saved detections: they
+# need neither the model nor the video frames, so they take seconds. Detection takes minutes: command line only.
+RERUN_FROM = "filtering"
+EDITABLE_STAGES = STAGES[STAGES.index(RERUN_FROM):]
+
+
+class RerunRequest(BaseModel):
+    settings: dict[str, dict[str, float | int | str]] = {}
 
 
 def find_results(output_dir: Path) -> dict[str, Path]:
@@ -38,6 +52,12 @@ def video_path(folder: Path) -> Path:
     """
     first = folder / STAGE_OUTPUTS[saved_stages(folder)[0]][0]
     return Path(json.loads(first.read_text())["video_path"])
+
+
+def saved_config(folder: Path) -> PipelineConfig:
+    """The settings the results in `folder` were made with (defaults if there is no config.json)."""
+    path = folder / "config.json"
+    return PipelineConfig.from_json(path) if path.exists() else PipelineConfig()
 
 
 def create_app(output_dir: str | Path = "data/output") -> FastAPI:
@@ -67,7 +87,8 @@ def create_app(output_dir: str | Path = "data/output") -> FastAPI:
 
     @app.get("/api/videos/{name}")
     def video_details(name: str) -> dict:
-        """Saved stages, the settings they were made with (config.json) and the video's size, fps and frame count."""
+        """Saved stages, every stage's settings (values from config.json, with explanations and allowed ranges),
+        which of them the page can change, and the video's size, fps and frame count."""
         folder = results_folder(name)
         path = video_path(folder)
         try:
@@ -75,14 +96,46 @@ def create_app(output_dir: str | Path = "data/output") -> FastAPI:
             del info["path"]
         except OSError:
             info = None  # video moved, deleted, or unreadable
-        config_path = folder / "config.json"
+        config = saved_config(folder)
         return {
             "name": name,
             "stages": saved_stages(folder),
-            "config": json.loads(config_path.read_text()) if config_path.exists() else None,
+            "settings": {stage: describe(getattr(config, stage)) for stage in STAGES},
+            "settings_saved": (folder / "config.json").exists(),
+            "editable_stages": EDITABLE_STAGES,
             "video_path": str(path),
             "video": info,
         }
+
+    run_lock = threading.Lock()
+
+    @app.post("/api/videos/{name}/rerun")
+    def rerun(name: str, request: RerunRequest) -> dict:
+        """Re-run the stages from RERUN_FROM on with some settings changed, from the saved detections.
+
+        The results and config.json are saved, as with `python -m swim.run --from filtering`. Returns the new details
+        and how long it took.
+        """
+        folder = results_folder(name)
+        not_editable = sorted(set(request.settings) - set(EDITABLE_STAGES))
+        if not_editable:
+            raise HTTPException(400, f"Settings of {', '.join(not_editable)} can't be changed here (only "
+                                     f"{', '.join(EDITABLE_STAGES)}): use the command line")
+        try:
+            config = saved_config(folder).with_changes(request.settings)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        if not run_lock.acquire(blocking=False):
+            raise HTTPException(409, "A re-run is already in progress")
+        try:
+            start = time.perf_counter()
+            run_pipeline(video_path(folder), folder, config, start=RERUN_FROM)
+            seconds = time.perf_counter() - start
+        except OSError as e:  # video missing, or no saved detections
+            raise HTTPException(400, str(e)) from e
+        finally:
+            run_lock.release()
+        return {**video_details(name), "seconds": round(seconds, 2)}
 
     @app.get("/api/videos/{name}/video")
     def video_file(name: str) -> FileResponse:

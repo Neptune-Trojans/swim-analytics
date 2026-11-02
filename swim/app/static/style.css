@@ -220,7 +220,58 @@ a.video-card:hover { border-color: var(--accent); }
 .warnings { margin: 0; padding-left: 18px; color: var(--warning); }
 .warnings li + li { margin-top: 6px; }
 
-.settings, .keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; }
-.settings dt, .keys dt { color: var(--muted); }
-.settings dd, .keys dd { margin: 0; }
-.settings dd { font-variant-numeric: tabular-nums; }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; }
+.keys dt { color: var(--muted); }
+.keys dd { margin: 0; }
+
+/* Settings form */
+.settings-group { margin: 0 0 12px; padding: 0; border: 0; }
+.settings-group legend { margin-bottom: 2px; padding: 0; font-weight: 600; }
+.settings-group.fixed summary { padding: 2px 0 8px; cursor: pointer; }
+.settings-group.fixed summary strong { margin-right: 8px; font-weight: 600; }
+.settings-values { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.setting { padding: 8px 0; border-top: 1px solid var(--border); }
+.setting-head { display: flex; justify-content: space-between; gap: 8px; }
+.setting-name { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
+.setting.changed .setting-name::after { content: " (changed)"; color: var(--accent); font-family: inherit; font-size: 11px; }
+.setting-value { font-variant-numeric: tabular-nums; }
+.setting-controls { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.setting-controls input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.setting-controls input[type="number"] {
+  width: 72px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.setting.invalid input[type="number"] { border-color: var(--error-text); }
+.setting-help { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.settings-note { margin: 6px 0 0; color: var(--muted); font-size: 12px; font-style: italic; }
+.settings-hint {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(232, 180, 76, 0.12);
+  color: var(--warning);
+  font-size: 12px;
+}
+.settings-actions { display: flex; align-items: center; gap: 12px; }
+.btn-primary {
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #0b1220;
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.btn-primary:disabled { background: var(--surface-2); color: var(--muted); cursor: default; }
+.btn-text { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; white-space: nowrap; cursor: pointer; }
+.settings-status { min-height: 1em; margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.settings-status:empty { display: none; }
+.settings-status.error { color: var(--error-text); }
