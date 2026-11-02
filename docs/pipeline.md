@@ -17,6 +17,8 @@ video ──► 1 Detection ──► 2 Filtering ──► 3 Tracking ──►
 Visualization: draws any of these outputs as a layer on the video (it is not a step in the chain)
 ```
 
+The outputs can also be watched in the browser (Play mode of the app): see [app.md](app.md).
+
 | # | Stage | Input | Output | Needs video frames? |
 |---|---|---|---|---|
 | 1 | **Detection** | video | `VideoDetections`: all persons per frame | yes |

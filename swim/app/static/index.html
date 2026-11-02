@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>swim-analytics viewer</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%235b9dff'/%3E%3Cpath d='M5 19c3.5-3 7-3 11 0s7.5 3 11 0' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">
+  <script type="module" src="/static/viewer.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">swim-analytics</a>
+    <span class="mode">Play</span>
+    <select id="video-select" aria-label="Video"></select>
+  </header>
+
+  <div id="error" class="banner" role="alert" hidden></div>
+
+  <!-- No video chosen: list of processed videos -->
+  <main id="home" class="home" hidden>
+    <h1>Processed videos</h1>
+    <p class="muted">Results found in the output folder. Add one with <code>python -m swim.run --input &lt;video&gt;</code>.</p>
+    <ul id="video-list" class="video-list"></ul>
+  </main>
+
+  <!-- Play mode: video with the stage results drawn on top -->
+  <main id="viewer" class="viewer" hidden>
+    <section id="player" class="player">
+      <div class="video-wrap">
+        <video id="video" muted playsinline preload="auto"></video>
+        <canvas id="overlay" class="overlay"></canvas>
+      </div>
+
+      <div class="controls">
+        <button id="play" class="btn" title="Play / pause (Space)" aria-label="Play / pause">
+          <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+          <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+        </button>
+        <button id="prev" class="btn" title="One frame back (←, Shift+← = 10 frames)" aria-label="One frame back">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2v12H6zM18 6v12l-8.5-6z"/></svg>
+        </button>
+        <button id="next" class="btn" title="One frame forward (→, Shift+→ = 10 frames)" aria-label="One frame forward">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 6h2v12h-2zM6 6v12l8.5-6z"/></svg>
+        </button>
+        <span id="position" class="position"></span>
+        <label class="speed">Speed
+          <select id="speed">
+            <option value="0.25">0.25×</option>
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+          </select>
+        </label>
+      </div>
+
+      <canvas id="timeline" class="timeline" title="Click or drag to jump to a frame"></canvas>
+      <div class="legend">
+        <span><i class="swatch tl-gap"></i>no person (gap)</span>
+        <span><i class="swatch tl-one"></i>1 person</span>
+        <span><i class="swatch tl-many"></i>2+ persons</span>
+        <span><i class="swatch tl-rejected"></i>boxes rejected</span>
+        <span id="timeline-layer" class="muted"></span>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <section>
+        <h2>Layers</h2>
+        <div id="layers"></div>
+      </section>
+      <section>
+        <h2 id="frame-title">Frame</h2>
+        <ul id="frame-boxes" class="boxes"></ul>
+      </section>
+      <section id="warnings-section" hidden>
+        <h2>Warnings</h2>
+        <ul id="warnings" class="warnings"></ul>
+      </section>
+      <section>
+        <h2>Settings used</h2>
+        <dl id="settings" class="settings"></dl>
+      </section>
+      <section>
+        <h2>Keys</h2>
+        <dl class="keys">
+          <dt><kbd>Space</kbd></dt><dd>play / pause</dd>
+          <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>one frame back / forward</dd>
+          <dt><kbd>Shift</kbd> + <kbd>←</kbd> <kbd>→</kbd></dt><dd>10 frames</dd>
+          <dt><kbd>Home</kbd> <kbd>End</kbd></dt><dd>first / last frame</dd>
+        </dl>
+      </section>
+    </aside>
+  </main>
+</body>
+</html>

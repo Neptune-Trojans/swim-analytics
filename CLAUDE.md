@@ -13,7 +13,7 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
 ## Environment
 
 - Python venv in `.venv/`: run everything with `.venv/bin/python`
-- Dependencies are in `pyproject.toml`: `.venv/bin/pip install -e ".[dev,notebooks]"`
+- Dependencies are in `pyproject.toml`: `.venv/bin/pip install -e ".[app,dev,notebooks]"`
 
 ## Conventions
 
@@ -28,7 +28,10 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
   Later stages use only `detections`.
 - Adding a stage: add it to `STAGES` / `STAGE_OUTPUTS` / `PipelineResult` / `load_results()` in
   `swim/pipeline/runner.py`, its settings to `swim/pipeline/config.py` as a field named exactly like the stage
-  (the runner relies on this), and its drawing layer to `swim/visualization/` + `LAYERS` in `render.py`
+  (the runner relies on this), and its drawing layer to `swim/visualization/` + `LAYERS` in `render.py` and to
+  `swim/app/static/layers.js` (`LAYERS` there too: same layer name and look, for the browser viewer)
+- `swim/app/`: the local web app (`python -m swim.app`, design in `docs/app.md`). It reads saved results; processing
+  goes through `run_pipeline()` there too. Plain HTML / CSS / JS (ES modules), no build step, no framework
 - Import heavy model packages (torch, rfdetr) inside the function that creates the model, so `--render-only` and
   loading saved results stay fast
 - `swim/utils/`: shared helpers used by several parts (runner, stages, visualization). Two rules:
@@ -39,6 +42,8 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
 ## Testing
 
 - Unit tests: `.venv/bin/python -m pytest`; files in `tests/`, same folder structure as `swim/`
+- `tests/app/test_viewer_browser.py` drives headless Chrome (skipped without it, ~3 s); leave it out with
+  `-m "not browser"`. Run it after changing `swim/app/static/`
 - Short clip: `data/input/IMG_4886.MOV` (93 frames, one swimmer); several persons: `IMG_4884.MOV`
 - Write test outputs to a temp folder (`--output <tmp>`), not `data/output/` (the user's own results)
 - Look at a few output frames, not only whether the script ran

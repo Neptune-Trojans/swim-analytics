@@ -50,10 +50,16 @@ def read_frames(path: str | Path) -> Iterator[np.ndarray]:
 
 
 @contextmanager
-def video_writer(path: str | Path, fps: float, width: int, height: int) -> Iterator[cv2.VideoWriter]:
-    """Open an mp4 writer (creating the folder if needed) and release it when done."""
+def video_writer(
+    path: str | Path, fps: float, width: int, height: int, codec: str = "mp4v"
+) -> Iterator[cv2.VideoWriter]:
+    """Open an mp4 writer (creating the folder if needed) and release it when done.
+
+    `codec`: "mp4v" (MPEG-4 Part 2; browsers don't play it) or "avc1" (H.264; plays in browsers, needs OpenCV built
+    with FFmpeg, as the pip package is).
+    """
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*codec), fps, (width, height))
     # OpenCV does not raise on a bad path, it silently writes nothing
     if not writer.isOpened():
         raise OSError(f"Cannot write video: {path}")

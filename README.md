@@ -27,6 +27,9 @@ swim/
     render.py         #   draw the chosen layers on the video
   utils/              # shared helpers, not specific to any stage (one file per topic)
     video.py          #   read frames, write video, video info
+  app/                # local web app: python -m swim.app (docs/app.md)
+    server.py         #   lists processed videos, serves video + stage results
+    static/           #   the page: viewer.js (Play mode), layers.js (drawing layers, mirrors visualization/)
 tests/                # unit tests, same folder structure as swim/
 data/
   input/              # source swim videos
@@ -40,11 +43,13 @@ research/             # research notes (one .md per topic; local only, git-ignor
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e ".[dev,notebooks]"   # dependencies from pyproject.toml (dev: pytest)
+.venv/bin/pip install -e ".[app,dev,notebooks]"   # dependencies from pyproject.toml (app: viewer, dev: tests)
 
 .venv/bin/python -m swim.run --input data/input/IMG_4884.MOV                  # run all stages + video
 .venv/bin/python -m swim.run --input data/input/IMG_4884.MOV --render-only    # re-draw saved results only
 .venv/bin/python -m swim.run --help
+
+.venv/bin/python -m swim.app        # viewer: open http://127.0.0.1:8000 (Safari or Chrome: iPhone videos are HEVC)
 ```
 
 ## Tests

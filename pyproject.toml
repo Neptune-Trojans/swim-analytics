@@ -10,7 +10,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+app = ["fastapi", "uvicorn"]
+dev = ["pytest", "httpx2", "websocket-client"]  # httpx2: FastAPI test client; websocket-client: drives Chrome
 notebooks = ["jupyterlab", "matplotlib", "pandas"]
 
 [build-system]
@@ -23,3 +24,4 @@ include = ["swim*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = ["browser: drives headless Chrome (skipped without it); leave out with -m \"not browser\""]
