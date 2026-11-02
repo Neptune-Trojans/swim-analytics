@@ -41,22 +41,50 @@ research/             # research notes (one .md per topic; local only, git-ignor
 
 ## Usage
 
+Run all commands from the repo root.
+
+### Setup (once)
+
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e ".[app,dev,notebooks]"   # dependencies from pyproject.toml (app: viewer, dev: tests)
-
-.venv/bin/python -m swim.run --input data/input/IMG_4884.MOV                  # run all stages + video
-.venv/bin/python -m swim.run --input data/input/IMG_4884.MOV --render-only    # re-draw saved results only
-.venv/bin/python -m swim.run --help
-
-.venv/bin/python -m swim.app        # viewer: open http://127.0.0.1:8000 (Safari or Chrome: iPhone videos are HEVC)
 ```
+
+### 1. Process a video
+
+Runs the pipeline stages (detection, filtering, ...) on a video and saves the results:
+
+```bash
+.venv/bin/python -m swim.run --input data/input/IMG_4887.MOV
+```
+
+Results go to `data/output/<video name>/`: `config.json` (settings used), one JSON per stage (`1_detections.json`,
+`2_filtered.json`, ...) and `video.mp4` (the video with the boxes drawn on it).
+
+More options:
+
+```bash
+.venv/bin/python -m swim.run --input data/input/IMG_4887.MOV --to detection                            # stop after a stage
+.venv/bin/python -m swim.run --input data/input/IMG_4887.MOV --from filtering --filter-min-score 0.6   # re-run from a stage, re-using saved results before it
+.venv/bin/python -m swim.run --input data/input/IMG_4887.MOV --render-only --layers detections,filtered  # only re-draw video.mp4
+.venv/bin/python -m swim.run --help                                                                     # all options
+```
+
+### 2. Open the viewer
+
+Watch processed videos in the browser, with the results drawn on top:
+
+```bash
+.venv/bin/python -m swim.app
+```
+
+Then open <http://127.0.0.1:8000> in **Chrome or Safari** (iPhone videos are HEVC; Firefox may not play them) and pick a
+video. Stop the viewer with `Ctrl+C`. Options: `--port 8080` (another port), `--output <folder>` (another results
+folder). See [docs/app.md](docs/app.md).
 
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest
+.venv/bin/python -m pytest                    # all tests (the viewer's browser test needs Chrome, ~3 s)
+.venv/bin/python -m pytest -m "not browser"   # without the browser test
 ```
-
-Results are saved to `data/output/<video name>/`: `config.json`, one JSON per stage (`1_detections.json`, ...)
-and `video.mp4`.
