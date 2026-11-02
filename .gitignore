@@ -13,3 +13,5 @@ data/output/*
 !data/output/.gitkeep
 *.mp4
 *.mov
+
+research/

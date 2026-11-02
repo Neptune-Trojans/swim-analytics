@@ -4,17 +4,21 @@ version = "0.1.0"
 description = "Swimming video analysis with pose overlays"
 requires-python = ">=3.10"
 dependencies = [
-    "opencv-python",
-    "mediapipe",
     "numpy",
+    "opencv-python",
+    "rfdetr>=1.9",  # >= 1.9: COCO class names are in rfdetr.assets.coco_classes
 ]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+notebooks = ["jupyterlab", "matplotlib", "pandas"]
 
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["swim"]
+[tool.setuptools.packages.find]
+include = ["swim*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

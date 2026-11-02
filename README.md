@@ -33,14 +33,14 @@ data/
   output/             # results, one folder per video
 docs/                 # design documents
 notebooks/            # experiments (detection_stats.ipynb: statistics of detected boxes)
-research/             # research notes (one .md per topic)
+research/             # research notes (one .md per topic; local only, git-ignored)
 ```
 
 ## Usage
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install opencv-python numpy rfdetr
+.venv/bin/pip install -e ".[dev,notebooks]"   # dependencies from pyproject.toml (dev: pytest)
 
 .venv/bin/python -m swim.run --input data/input/IMG_4884.MOV                  # run all stages + video
 .venv/bin/python -m swim.run --input data/input/IMG_4884.MOV --render-only    # re-draw saved results only
@@ -50,7 +50,6 @@ python3 -m venv .venv
 ## Tests
 
 ```bash
-.venv/bin/pip install pytest
 .venv/bin/python -m pytest
 ```
 

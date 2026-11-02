@@ -8,12 +8,12 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
   changes first.
 - **Every research request gets its own file in `research/`** (`research/<topic>.md`), even if the answer is also
   given in chat. Start it with `_Research date: YYYY-MM-DD_` and end it with a sources/references list with links.
-  Papers worth reading also go in `research/reading-list.md`.
+  Papers worth reading also go in `research/reading-list.md`. `research/` is git-ignored (local only).
 
 ## Environment
 
 - Python venv in `.venv/`: run everything with `.venv/bin/python`
-- `rfdetr` is installed in `.venv` but not yet listed in `pyproject.toml`
+- Dependencies are in `pyproject.toml`: `.venv/bin/pip install -e ".[dev,notebooks]"`
 
 ## Conventions
 
