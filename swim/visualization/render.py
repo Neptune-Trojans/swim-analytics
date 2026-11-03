@@ -7,11 +7,13 @@ from swim.pipeline.runner import PipelineResult
 from swim.stages.detection.types import FrameDetections
 from swim.utils.video import get_video_info, read_frames, video_writer
 from swim.visualization.detections import draw_detections
+from swim.visualization.tracks import draw_tracks
 
 # Layer name -> (the PipelineResult field it draws, the function that draws one frame of it). In pipeline order.
 LAYERS = {
     "detections": ("detections", draw_detections),  # stage 1: everything the detector found
     "filtered": ("filtered", draw_detections),  # stage 2: kept detections, rejected ones in gray with the reason
+    "tracks": ("tracks", draw_tracks),  # stage 3: each track in its own color with its number, untracked in gray
 }
 
 

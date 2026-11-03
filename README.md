@@ -2,7 +2,8 @@
 
 Process a swimming video and overlay analysis layers (skeleton, joint angles, velocity, speed) on it.
 
-The analysis is one pipeline of stages: detection → filtering → tracking → swimmer → pose → metrics.
+The analysis is one pipeline of stages: detection → filtering → tracking → swimmer → pose → metrics
+(implemented: detection, filtering, tracking).
 See [docs/pipeline.md](docs/pipeline.md) for the design and which stages are implemented.
 
 ## Structure
@@ -22,8 +23,12 @@ swim/
       stage.py        #     filter_detections(): runs the filters in order
       min_score.py    #     low confidence
       duplicates.py   #     boxes overlapping too much (keeps the higher score)
+    tracking/         #   stage 3: the same person keeps the same track_id from frame to frame
+      stage.py        #     track(): runs the tracker frame by frame, numbers tracks 1, 2, ...
+      roboflow_trackers.py  # ByteTrack, OC-SORT, SORT from the `trackers` library
   visualization/      # one drawing layer per stage output
     detections.py     #   draw detection boxes (rejected ones in gray with the reason)
+    tracks.py         #   draw tracks: one color per track with its number
     render.py         #   draw the chosen layers on the video
   utils/              # shared helpers, not specific to any stage (one file per topic)
     video.py          #   read frames, write video, video info
@@ -52,21 +57,22 @@ python3 -m venv .venv
 
 ### 1. Process a video
 
-Runs the pipeline stages (detection, filtering, ...) on a video and saves the results:
+Runs the pipeline stages (detection, filtering, tracking, ...) on a video and saves the results:
 
 ```bash
 .venv/bin/python -m swim.run --input data/input/IMG_4887.MOV
 ```
 
 Results go to `data/output/<video name>/`: `config.json` (settings used), one JSON per stage (`1_detections.json`,
-`2_filtered.json`, ...) and `video.mp4` (the video with the boxes drawn on it).
+`2_filtered.json`, `3_tracks.json`, ...) and `video.mp4` (the video with the last stage's boxes drawn on it).
 
 More options:
 
 ```bash
 .venv/bin/python -m swim.run --input data/input/IMG_4887.MOV --to detection                            # stop after a stage
 .venv/bin/python -m swim.run --input data/input/IMG_4887.MOV --from filtering --filter-min-score 0.6   # re-run from a stage, re-using saved results before it
-.venv/bin/python -m swim.run --input data/input/IMG_4887.MOV --render-only --layers detections,filtered  # only re-draw video.mp4
+.venv/bin/python -m swim.run --input data/input/IMG_4887.MOV --from tracking --tracker ocsort         # try another tracker
+.venv/bin/python -m swim.run --input data/input/IMG_4887.MOV --render-only --layers filtered,tracks  # only re-draw video.mp4
 .venv/bin/python -m swim.run --help                                                                     # all options
 ```
 
@@ -79,8 +85,9 @@ Watch processed videos in the browser, with the results drawn on top:
 ```
 
 Then open <http://127.0.0.1:8000> in **Chrome or Safari** (iPhone videos are HEVC; Firefox may not play them) and pick a
-video. In the **Settings** panel you can change the filtering settings (e.g. `min_score`) and press **Apply**: filtering
-re-runs from the saved detections in a moment, the results are saved and shown on the video. Stop the viewer with
+video. In the **Settings** panel you can change the filtering and tracking settings (e.g. `min_score`, the tracker) and
+press **Apply**: filtering and tracking re-run from the saved detections in under a second, the results are saved and
+shown on the video. Stop the viewer with
 `Ctrl+C`. Options: `--port 8080` (another port), `--output <folder>` (another results
 folder). See [docs/app.md](docs/app.md).
 

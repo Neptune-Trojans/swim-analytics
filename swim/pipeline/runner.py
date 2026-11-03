@@ -1,7 +1,7 @@
 """The pipeline runner: runs the stages (swim/stages/) in order and saves each stage's output.
 
 Planned stages: detection -> filtering -> tracking -> swimmer -> pose -> metrics (see docs/pipeline.md).
-Implemented so far: detection, filtering.
+Implemented so far: detection, filtering, tracking.
 """
 
 from dataclasses import dataclass, replace
@@ -11,15 +11,17 @@ from swim.pipeline.config import PipelineConfig
 from swim.stages.detection.stage import detect
 from swim.stages.detection.types import VideoDetections
 from swim.stages.filtering.stage import filter_detections
+from swim.stages.tracking.stage import track
 from swim.utils.video import get_video_info
 
 # Implemented stages, in order
-STAGES = ["detection", "filtering"]
+STAGES = ["detection", "filtering", "tracking"]
 
 # Saved output of each stage: file name in the video's output folder, and its data class
 STAGE_OUTPUTS = {
     "detection": ("1_detections.json", VideoDetections),
     "filtering": ("2_filtered.json", VideoDetections),
+    "tracking": ("3_tracks.json", VideoDetections),
 }
 
 
@@ -29,6 +31,7 @@ class PipelineResult:
 
     detections: VideoDetections | None = None
     filtered: VideoDetections | None = None
+    tracks: VideoDetections | None = None
 
 
 def run_pipeline(
@@ -89,6 +92,8 @@ def run_pipeline(
     result.detections = stage("detection", lambda: detect(video_path, config.detection))
     # 2. Filtering: remove problematic detections (kept as "rejected" with the reason)
     result.filtered = stage("filtering", lambda: filter_detections(result.detections, config.filtering))
+    # 3. Tracking: the same person keeps the same track_id from frame to frame
+    result.tracks = stage("tracking", lambda: track(result.filtered, config.tracking))
     return result
 
 
@@ -102,4 +107,6 @@ def load_results(output_dir: str | Path) -> PipelineResult:
             loaded[name] = data_cls.from_json(output_dir / filename)
     if not loaded:
         raise FileNotFoundError(f"No saved results in {output_dir}: run the pipeline first")
-    return PipelineResult(detections=loaded.get("detection"), filtered=loaded.get("filtering"))
+    return PipelineResult(
+        detections=loaded.get("detection"), filtered=loaded.get("filtering"), tracks=loaded.get("tracking")
+    )

@@ -40,7 +40,7 @@ Browser (swim/app/static/)                  Local server (python -m swim.app, sw
 |---|---|
 | **Video list** | Processed videos found in `data/output/` (folders with at least one stage result); one whose video file is missing is listed but can't be opened. The URL holds the video and, when paused, the frame (`?video=IMG_4887&frame=432`), so a link or a reload opens the same frame |
 | **Player** | Original video with a canvas overlay, scaled with the video when the window is resized |
-| **Layers** | A checkbox per available layer: `detections`, `filtered` (later `tracks`, `swimmer`, `pose`, `metrics`). Default: the last stage's layer, as on the command line. Same look as the Python render: kept boxes in red with the score, rejected ones in gray with the reason |
+| **Layers** | A checkbox per available layer: `detections`, `filtered`, `tracks` (each track in its own color with its number; later `swimmer`, `pose`, `metrics`). Default: the last stage's layer, as on the command line. Same look as the Python render: kept boxes in red with the score, rejected ones in gray with the reason |
 | **Controls** | Play / pause (Space), one frame back / forward (← / →), 10 frames (Shift + ← / →), speed 0.25× / 0.5× / 1× / 2×, frame number and time |
 | **Timeline** | One thin bar per frame under the video, colored by the number of persons kept (0 = gap, highlighted), with a mark where boxes were rejected. Click or drag to jump; shows where the playhead is |
 | **Side panel** | The current frame's detections (score, box size) and rejected ones (reason, score). Hovering a row highlights its box |

@@ -1,7 +1,7 @@
 // Play mode of the browser app (docs/app.md): a processed video with its stage results drawn on top.
 // The original video plays as it is; the boxes are drawn on a canvas over it from the saved stage outputs (JSON).
 
-import { LAYERS } from "./layers.js";
+import { LAYERS, trackStyle } from "./layers.js";
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -422,7 +422,7 @@ function updateFrameBoxes() {
   }
   const f = frameData(layer, state.frame);
   const rows = [
-    ...f.detections.map((d, i) => boxRow("detections", i, d, d.label)),
+    ...f.detections.map((d, i) => boxRow("detections", i, d, d.track_id == null ? d.label : `#${d.track_id} ${d.label}`)),
     ...f.rejected.map((r, i) => boxRow("rejected", i, r.detection, r.reason)),
   ];
   const rejected = f.rejected.length ? `${f.rejected.length} rejected` : null;
@@ -436,8 +436,10 @@ function updateFrameBoxes() {
 function boxRow(kind, index, detection, name) {
   const { x1, y1, x2, y2 } = detection.bbox;
   const li = el("li", kind === "rejected" ? "box rejected" : "box");
+  const swatch = el("span", "swatch");
+  if (kind === "detections" && detection.track_id != null) swatch.style.borderColor = trackStyle(detection.track_id).color;
   li.append(
-    el("span", "swatch"),
+    swatch,
     el("span", "name", name),
     el("span", "score", detection.score.toFixed(2)),
     el("span", "size", `${Math.round(x2 - x1)} × ${Math.round(y2 - y1)} px at (${Math.round(x1)}, ${Math.round(y1)})`),
@@ -496,7 +498,11 @@ function buildSettings() {
     }
     const group = el("fieldset", "settings-group");
     group.append(el("legend", "", stage));
-    for (const f of fields) group.append(typeof f.value === "number" ? numberSetting(stage, f) : fixedSetting(f));
+    for (const f of fields) {
+      if (f.choices) group.append(choiceSetting(stage, f));
+      else if (typeof f.value === "number") group.append(numberSetting(stage, f));
+      else group.append(fixedSetting(f));
+    }
     return group;
   });
   if (!saved) groups.unshift(el("p", "settings-note", "No config.json: showing the default settings."));
@@ -520,7 +526,7 @@ function numberSetting(stage, f) {
     input.step = f.step ?? "any";
     input.value = f.value;
   }
-  Object.assign(number.dataset, { stage, name: f.name, saved: f.value });
+  Object.assign(number.dataset, { stage, name: f.name, saved: f.value, type: f.type });
   range.addEventListener("input", () => {
     number.value = range.value;
     updateSettingsState();
@@ -539,6 +545,23 @@ function numberSetting(stage, f) {
   return row;
 }
 
+function choiceSetting(stage, f) {
+  const id = `setting-${stage}-${f.name}`;
+  const select = el("select");
+  select.id = id;
+  select.replaceChildren(...f.choices.map((choice) => new Option(choice, choice, false, choice === f.value)));
+  Object.assign(select.dataset, { stage, name: f.name, saved: f.value, type: f.type });
+  select.addEventListener("change", updateSettingsState);
+
+  const head = el("div", "setting-head");
+  const label = el("label", "setting-name", f.name);
+  label.htmlFor = id;
+  head.append(label, select);
+  const row = el("div", "setting");
+  row.append(head, el("p", "setting-help", f.help));
+  return row;
+}
+
 function fixedSetting(f) {
   const head = el("div", "setting-head");
   head.append(el("span", "setting-name", f.name), el("span", "setting-value", String(f.value)));
@@ -547,19 +570,25 @@ function fixedSetting(f) {
   return row;
 }
 
-const settingInputs = () => [...document.querySelectorAll("#settings input[type=number]")];
+// The editable fields: number inputs and selects (each with data-stage, data-name, data-saved, data-type)
+const settingInputs = () => [...document.querySelectorAll("#settings [data-name]")];
 
-// A value is usable if present and in range (any decimal is fine, not only multiples of the slider step)
+const parseSetting = (type, text) => (type === "str" ? text : Number(text));
+const settingValue = (input) => parseSetting(input.dataset.type, input.value);
+const isChanged = (input) => input.value !== "" && settingValue(input) !== parseSetting(input.dataset.type, input.dataset.saved);
+
+// A value is usable if present and in range; any decimal is fine (not only multiples of the slider step), except for
+// whole-number settings
 function usable(input) {
   const v = input.validity;
-  return !(v.valueMissing || v.badInput || v.rangeUnderflow || v.rangeOverflow);
+  if (v.valueMissing || v.badInput || v.rangeUnderflow || v.rangeOverflow) return false;
+  return input.dataset.type !== "int" || Number.isInteger(Number(input.value));
 }
 
 function changedSettings() {
   const changes = {};
   for (const input of settingInputs()) {
-    if (input.value === "" || Number(input.value) === Number(input.dataset.saved)) continue;
-    (changes[input.dataset.stage] ??= {})[input.dataset.name] = Number(input.value);
+    if (isChanged(input)) (changes[input.dataset.stage] ??= {})[input.dataset.name] = settingValue(input);
   }
   return changes;
 }
@@ -568,7 +597,7 @@ function updateSettingsState() {
   const inputs = settingInputs();
   for (const input of inputs) {
     const row = input.closest(".setting");
-    row.classList.toggle("changed", input.value !== "" && Number(input.value) !== Number(input.dataset.saved));
+    row.classList.toggle("changed", isChanged(input));
     row.classList.toggle("invalid", !usable(input));
   }
   const changed = Object.keys(changedSettings()).length > 0;

@@ -5,7 +5,7 @@ Drives headless Chrome (DevTools protocol) against the app, on a generated H.264
 own index as a row of black / white squares (binary), so the picture on screen can be read back exactly. Each frame
 has one box whose x position depends on the frame index, so the overlay can be read back too.
 
-Also: changing a setting in the settings panel re-runs filtering and shows the new results.
+Also: changing a setting in the settings panel re-runs filtering and tracking and shows the new results.
 
 Skipped without Chrome (or set CHROME_PATH). Leave it out with: pytest -m "not browser"
 """
@@ -328,6 +328,24 @@ def test_changing_a_setting_reruns_and_shows_the_new_results(viewer):
 
     assert status.startswith("Done"), status
     assert js("document.getElementById('settings-hint').hidden")
-    assert js("document.getElementById('frame-title').textContent") == "Frame 5 · filtered"  # new layer shown
-    assert viewer.shown() == (5, 5, None)  # every box scores 0.9 < 0.95: rejected, drawn gray, no red box
-    assert "min_score" in js("document.getElementById('frame-boxes').textContent")
+    assert js("document.getElementById('frame-title').textContent") == "Frame 5 · tracks"  # new layer shown
+    assert viewer.shown() == (5, 5, None)  # every box scores 0.9 < 0.95: removed by filtering, nothing to track
+    assert "No person" in js("document.getElementById('frame-boxes').textContent")
+
+    # Back to a low min_score, and another tracker: the box is tracked again (#1 in the side panel)
+    js("""(() => {
+      const input = document.getElementById('setting-filtering-min_score');
+      input.value = '0.1';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      const tracker = document.getElementById('setting-tracking-tracker');
+      tracker.value = 'sort';
+      tracker.dispatchEvent(new Event('change', { bubbles: true }));
+      document.getElementById('settings-status').textContent = '';
+      document.getElementById('apply-settings').click();
+    })()""")
+    status = viewer.wait_for("document.getElementById('settings-status').textContent",
+                             lambda text: text.startswith(("Done", "Re-run failed")))
+
+    assert status.startswith("Done"), status
+    assert "#1 person" in js("document.getElementById('frame-boxes').textContent")
+    assert js("document.getElementById('setting-tracking-tracker').value") == "sort"

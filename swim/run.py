@@ -7,20 +7,49 @@ Usage:
     python -m swim.run --input data/input/IMG_4884.MOV --to detection
     python -m swim.run --input data/input/IMG_4884.MOV --from detection --detection-size large --detection-threshold 0.3
     python -m swim.run --input data/input/IMG_4884.MOV --from filtering --filter-min-score 0.6
-    python -m swim.run --input data/input/IMG_4884.MOV --render-only --layers detections,filtered
+    python -m swim.run --input data/input/IMG_4884.MOV --from tracking --tracker ocsort
+    python -m swim.run --input data/input/IMG_4884.MOV --render-only --layers detections,tracks
 """
 
 import argparse
+from dataclasses import fields
 from pathlib import Path
 
-from swim.pipeline.config import DetectionConfig, FilteringConfig, PipelineConfig
+from swim.pipeline.config import PipelineConfig
 from swim.pipeline.runner import STAGES, load_results, run_pipeline
 from swim.visualization.render import LAYERS, available_layers, render_video
 
+# Command-line option -> (stage, setting). Explanation, type, default and allowed values come from
+# swim/pipeline/config.py, as in the viewer's settings panel.
+SETTING_OPTIONS = {
+    "--detection-size": ("detection", "size"),
+    "--detection-threshold": ("detection", "threshold"),
+    "--filter-min-score": ("filtering", "min_score"),
+    "--filter-max-iou": ("filtering", "max_iou"),
+    "--tracker": ("tracking", "tracker"),
+    "--track-start-score": ("tracking", "start_score"),
+    "--track-high-score": ("tracking", "high_score"),
+    "--track-lost-seconds": ("tracking", "lost_seconds"),
+    "--track-min-iou": ("tracking", "min_iou"),
+    "--track-min-frames": ("tracking", "min_frames"),
+}
+
+
+def add_setting_options(parser: argparse.ArgumentParser) -> None:
+    defaults = PipelineConfig()
+    group = parser.add_argument_group("settings (only the ones given change; see swim/pipeline/config.py)")
+    for option, (stage, name) in SETTING_OPTIONS.items():
+        settings = getattr(defaults, stage)
+        meta = next(f.metadata for f in fields(settings) if f.name == name)
+        default = getattr(settings, name)
+        group.add_argument(
+            option, dest=f"{stage}.{name}", type=type(default), choices=meta["choices"],
+            metavar=None if meta["choices"] else name.upper(),
+            help=f"{stage}: {meta['help']} (default: {default})".replace("%", "%%"),
+        )
+
 
 def main() -> None:
-    defaults = DetectionConfig()
-    filter_defaults = FilteringConfig()
     parser = argparse.ArgumentParser(prog="python -m swim.run", description="Analyze a swimming video.")
     parser.add_argument("--input", required=True, help="Path to input video")
     parser.add_argument("--output", default="data/output", help="Results root folder; results go to <output>/<video name>/")
@@ -29,15 +58,7 @@ def main() -> None:
     parser.add_argument("--render-only", action="store_true", help="Only draw saved results on the video, run no stage")
     parser.add_argument("--layers", help=f"Comma-separated layers to draw: {', '.join(LAYERS)} "
                                          "(default: the layer of the last stage with results)")
-    parser.add_argument("--detection-size", default=defaults.size, help=f"Detection model size (default: {defaults.size})")
-    parser.add_argument("--detection-threshold", type=float, default=defaults.threshold,
-                        help=f"Drop detections below this confidence (default: {defaults.threshold})")
-    parser.add_argument("--filter-min-score", type=float, default=filter_defaults.min_score,
-                        help=f"Filtering: remove detections below this confidence, 0 = off "
-                             f"(default: {filter_defaults.min_score})")
-    parser.add_argument("--filter-max-iou", type=float, default=filter_defaults.max_iou,
-                        help=f"Filtering: of two boxes overlapping more than this (IoU), keep the higher score, "
-                             f"1 = off (default: {filter_defaults.max_iou})")
+    add_setting_options(parser)
     args = parser.parse_args()
 
     output_dir = Path(args.output) / Path(args.input).stem
@@ -45,10 +66,15 @@ def main() -> None:
     if args.render_only:
         result = load_results(output_dir)
     else:
-        config = PipelineConfig(
-            detection=DetectionConfig(size=args.detection_size, threshold=args.detection_threshold),
-            filtering=FilteringConfig(min_score=args.filter_min_score, max_iou=args.filter_max_iou),
-        )
+        changes: dict[str, dict] = {}
+        for stage, name in SETTING_OPTIONS.values():
+            value = vars(args)[f"{stage}.{name}"]
+            if value is not None:
+                changes.setdefault(stage, {})[name] = value
+        try:
+            config = PipelineConfig().with_changes(changes)
+        except ValueError as e:
+            parser.error(str(e))
         result = run_pipeline(args.input, output_dir, config, start=args.start, stop=args.stop)
 
     # By default draw only the last stage's layer: earlier layers show the same boxes before later stages changed them

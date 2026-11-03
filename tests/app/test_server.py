@@ -61,7 +61,7 @@ def test_details_have_settings_and_video_info(client):
     details = client.get("/api/videos/IMG_1").json()
 
     assert details["stages"] == ["detection", "filtering"]
-    assert details["editable_stages"] == ["filtering"]
+    assert details["editable_stages"] == ["filtering", "tracking"]
     min_score = details["settings"]["filtering"][0]
     assert (min_score["name"], min_score["value"], min_score["min"], min_score["max"]) == ("min_score", 0.1, 0, 1)
     assert min_score["help"]
@@ -126,14 +126,27 @@ def test_rerun_creates_results_of_stages_not_run_yet(client, output):
     response = client.post("/api/videos/IMG_3/rerun", json={"settings": {"filtering": {"max_iou": 0.6}}})
 
     assert response.status_code == 200
-    assert response.json()["stages"] == ["detection", "filtering"]
-    assert (output / "IMG_3" / "2_filtered.json").exists()
+    assert response.json()["stages"] == ["detection", "filtering", "tracking"]
+    assert (output / "IMG_3" / "2_filtered.json").exists() and (output / "IMG_3" / "3_tracks.json").exists()
+
+
+def test_rerun_with_tracking_settings(client, output):
+    settings = {"tracking": {"tracker": "ocsort", "min_frames": 3}}
+
+    response = client.post("/api/videos/IMG_1/rerun", json={"settings": settings})
+
+    assert response.status_code == 200
+    config = json.loads((output / "IMG_1" / "config.json").read_text())
+    assert (config["tracking"]["tracker"], config["tracking"]["min_frames"]) == ("ocsort", 3)
+    tracks = json.loads((output / "IMG_1" / "3_tracks.json").read_text())
+    assert {d["track_id"] for f in tracks["frames"] for d in f["detections"]} == {1}  # one box per frame: one track
 
 
 @pytest.mark.parametrize("url, settings, status", [
     ("/api/videos/IMG_1/rerun", {"detection": {"threshold": 0.3}}, 400),  # detection: command line only
     ("/api/videos/IMG_1/rerun", {"filtering": {"min_score": 2}}, 400),
     ("/api/videos/IMG_1/rerun", {"filtering": {"nope": 1}}, 400),
+    ("/api/videos/IMG_1/rerun", {"tracking": {"tracker": "deepsort"}}, 400),
     ("/api/videos/IMG_2/rerun", {"filtering": {"min_score": 0.3}}, 400),  # video missing
     ("/api/videos/unknown/rerun", {"filtering": {"min_score": 0.3}}, 404),
 ])

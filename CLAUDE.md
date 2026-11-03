@@ -21,7 +21,7 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
 - All processing goes through `run_pipeline()` in `swim/pipeline/runner.py`, run with `python -m swim.run`.
   No separate scripts with their own processing loops.
 - `swim/pipeline/` is the runner (order, save/load, settings); `swim/stages/` holds the steps
-- One folder per stage under `swim/stages/` (`detection/`, `filtering/`, later `tracking/`, `pose/`, `metrics/`),
+- One folder per stage under `swim/stages/` (`detection/`, `filtering/`, `tracking/`, later `swimmer/`, `pose/`, `metrics/`),
   each with: `types.py` (output data classes + model contract, no model-specific code; only if the stage has its
   own output format), `stage.py` (the function the runner calls), and one file per model or rule
 - Filtering outputs the same `VideoDetections` as detection: `detections` = kept, `rejected` = removed + reason.

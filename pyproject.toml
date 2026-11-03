@@ -7,6 +7,7 @@ dependencies = [
     "numpy",
     "opencv-python",
     "rfdetr>=1.9",  # >= 1.9: COCO class names are in rfdetr.assets.coco_classes
+    "trackers>=2.6",  # Roboflow: ByteTrack, OC-SORT, SORT (tracking stage)
 ]
 
 [project.optional-dependencies]

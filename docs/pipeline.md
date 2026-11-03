@@ -1,6 +1,6 @@
 # Pipeline Design
 
-_Agreed: 2026-10-07. Status: steps 1–2 implemented (see "Build order")._
+_Agreed: 2026-10-07. Status: steps 1–3 implemented (see "Build order")._
 
 Goal: one clear pipeline, used everywhere (command line, notebooks, future apps), where every step is visible:
 detection, filtering, tracking, choosing the swimmer, pose (skeleton), metrics.
@@ -23,7 +23,7 @@ The outputs can also be watched in the browser (Play mode of the app): see [app.
 |---|---|---|---|---|
 | 1 | **Detection** | video | `VideoDetections`: all persons per frame | yes |
 | 2 | **Filtering** | detections | Same format; removed detections are kept with the **reason** they were removed | no |
-| 3 | **Tracking** | detections | Detections with `track_id` filled in | no |
+| 3 | **Tracking** | detections | Same format, with `track_id` filled in; boxes the tracker didn't use in `rejected` as "untracked" | no |
 | 4 | **Swimmer** | tracks | One track: our swimmer, with short gaps filled | no |
 | 5 | **Pose** | video + swimmer boxes | Joint positions (keypoints) per frame | yes |
 | 6 | **Metrics** | poses + swimmer track + fps | Joint angles, velocity, speed, stroke rate | no |
@@ -58,8 +58,9 @@ swim/
     config.py        #   settings for every stage (model, thresholds, ...)
   stages/            # the steps, one folder each, in pipeline order
     detection/       #   1  types.py, stage.py, rfdetr_detector.py
-    filtering/       #   2  types.py?, stage.py, filter rules
-    tracking/        #   3+4  types.py, stage.py, tracker (ByteTrack-style), swimmer selection
+    filtering/       #   2  stage.py, filter rules (min_score.py, duplicates.py)
+    tracking/        #   3  stage.py, roboflow_trackers.py (ByteTrack, OC-SORT, SORT)
+    swimmer/         #   4  stage.py: pick the swimmer's track, join its pieces, fill gaps
     pose/            #   5  types.py (keypoints), stage.py, pose models
     metrics/         #   6  types.py, stage.py
   visualization/     # one drawing layer per stage output + video rendering
@@ -93,7 +94,7 @@ data/output/IMG_4884/
   video.mp4                     # rendered with the chosen layers
 ```
 
-## Command line (planned)
+## Command line
 
 ```bash
 python -m swim.run --input data/input/IMG_4884.MOV                      # all stages + video
@@ -110,7 +111,9 @@ Each step leaves a pipeline that works end to end.
   renders the detections layer. Replaces `scripts/run_rfdetr.py` and `scripts/visualize_detections.py`.
 - [x] 2. Filtering: `min_score` and `duplicate` (IoU > 0.5, keep the higher score) filters; removed
   detections are kept in `rejected` with the reason and drawn in gray. Unit tests in `tests/stages/filtering/`.
-- [ ] 3. Tracking
+- [x] 3. Tracking: ByteTrack (Roboflow `trackers` library, also OC-SORT and SORT) behind `track()`; IDs 1, 2, ... in
+  order of first appearance; boxes not used in `rejected` as "untracked"; `tracks` layer (Python + viewer); settings
+  in the viewer's panel. Unit tests in `tests/stages/tracking/`, runner tests in `tests/pipeline/`.
 - [ ] 4. Choosing the swimmer
 - [ ] 5. Pose
 - [ ] 6. Metrics
@@ -125,3 +128,29 @@ Each step leaves a pipeline that works end to end.
   the threshold is only a score cut. Tracking (ByteTrack) uses low-score boxes to continue tracks of a half-submerged
   swimmer, so they must reach it; duplicates are removed by the filtering stage's NMS (`max_iou`). `min_score` stays
   as a setting (viewer settings panel) for trackers without a low-score pass.
+- Stage 4 (swimmer) gets its own folder `swim/stages/swimmer/` (2026-11-02, was planned inside `tracking/`): the
+  runner expects one settings field per stage.
+- Tracker: **ByteTrack** from Roboflow's `trackers` library (Apache-2.0), not our own implementation (2026-11-02).
+  Defaults: `start_score` 0.5 (library: 0.7, too high for an underwater swimmer), `high_score` 0.5, `lost_seconds` 1,
+  `min_iou` 0.1, `min_frames` 2. The library reports a track's first box(es) as untracked (only confirmed tracks get
+  an ID); `track()` gives them the track's ID afterwards (`give_ids_to_unconfirmed_boxes`).
+
+## Tracking: measured on our videos (2026-11-02)
+
+Detection at 0.1, filtering defaults. "Swimmer's track" = the longest track.
+
+| Video | Tracker | Tracks | Swimmer's track | Frames with a track |
+|---|---|---|---|---|
+| `IMG_4887` (one swimmer, others later) | ByteTrack, `min_iou` 0.2 | 5 | split in two: frames 0–118 and 117–944 | 965 / 978 |
+| | **ByteTrack, `min_iou` 0.1** | 4 | **one track, frames 0–944 (94%)**, 8 short breaks | 965 / 978 |
+| | OC-SORT | 2 | 75%, 19 breaks (ignores boxes below 0.5) | 761 / 978 |
+| | SORT | 17 | 35%, fragmented | 965 / 978 |
+| `IMG_4884` (wide view, many small swimmers) | ByteTrack, `min_iou` 0.1 | 24 | longest 18%: every swimmer breaks into several tracks | 479 / 639 |
+
+- `lost_seconds` 2 instead of 1 and `start_score` 0.6 changed almost nothing.
+- `min_iou` 0.2 split the swimmer where the box grows from torso to whole body (frame 117→118, same right edge).
+- Checked in the viewer: no ID switch on `IMG_4887`'s swimmer; a swimmer in the next lane gets its own track (#3);
+  weak boxes on the deck (chairs, poles, 0.10–0.15) never start a track.
+- Left for stage 4: joining a swimmer's pieces (`IMG_4884`) and filling the short breaks.
+- Left for filtering: weak boxes of body parts inside the swimmer's box (head, torso) survive NMS (small box inside a
+  big one = low IoU); a "box mostly inside a stronger box" filter would remove them.
