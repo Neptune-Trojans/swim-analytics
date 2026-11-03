@@ -17,7 +17,8 @@ video ──► 1 Detection ──► 2 Filtering ──► 3 Tracking ──►
 Visualization: draws any of these outputs as a layer on the video (it is not a step in the chain)
 ```
 
-The outputs can also be watched in the browser (Play mode of the app): see [app.md](app.md).
+Videos can also be processed, and their outputs watched, in the browser (the app's Videos and Play pages): see
+[app.md](app.md).
 
 | # | Stage | Input | Output | Needs video frames? |
 |---|---|---|---|---|
@@ -43,9 +44,12 @@ Stage names (used on the command line): `detection`, `filtering`, `tracking`, `s
    video anyway (removing short tracks, filling gaps, smoothing speed look backwards and forwards in time).
 4. **Every stage output is saved**, so any stage can be re-run from saved results without re-running the models.
    Re-running a stage deletes the saved results of the stages after it (they are outdated), and `config.json`
-   always records the settings each saved result was made with.
+   always records the settings each saved result was made with. Both happen when the stage's new output is saved,
+   so a run that stops halfway (error, Ctrl+C, Cancel in the app) leaves consistent results.
 5. **One output folder per video**, files numbered by stage, plus the settings used.
-6. **One command for everything:** `python -m swim.run`. No separate scripts with their own processing loops.
+6. **One command for everything:** `python -m swim.run`. No separate scripts with their own processing loops. The
+   app (`python -m swim.app`) calls the same `run_pipeline()`; its `progress` callback reports the stage and frame and
+   can cancel the run.
 7. **Visualization draws layers**, one per stage output, so each stage can be viewed (and debugged) on its own.
 
 ## Folder structure

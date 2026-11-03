@@ -42,7 +42,7 @@ def output(tmp_path):
 
 @pytest.fixture
 def client(output):
-    return TestClient(create_app(output))
+    return TestClient(create_app(output), base_url="http://127.0.0.1")
 
 
 def test_lists_folders_with_results(client):
@@ -54,7 +54,7 @@ def test_lists_folders_with_results(client):
 
 
 def test_missing_output_folder_lists_nothing(tmp_path):
-    assert TestClient(create_app(tmp_path / "nothing")).get("/api/videos").json() == []
+    assert TestClient(create_app(tmp_path / "nothing"), base_url="http://127.0.0.1").get("/api/videos").json() == []
 
 
 def test_details_have_settings_and_video_info(client):
@@ -103,10 +103,66 @@ def test_video_supports_range_requests(client, output):
     assert part.content == full.content[:100]
 
 
-def test_serves_the_page(client):
-    assert "<html" in client.get("/").text
-    assert client.get("/static/viewer.js").status_code == 200
-    assert client.get("/static/layers.js").status_code == 200
+def test_serves_the_pages(client):
+    assert "videos.js" in client.get("/").text  # Videos page
+    assert "viewer.js" in client.get("/play?video=IMG_1").text  # Play page
+    for script in ("videos.js", "viewer.js", "layers.js", "settings.js", "dom.js"):
+        assert client.get(f"/static/{script}").status_code == 200
+
+
+def test_old_viewer_links_go_to_the_play_page(client):
+    response = client.get("/?video=IMG_1&frame=5", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/play?video=IMG_1&frame=5"
+
+
+def test_only_requests_addressed_to_this_computer(output):
+    # A page on another site pointing its domain name at 127.0.0.1 (DNS rebinding) is refused
+    assert TestClient(create_app(output), base_url="http://evil.example").get("/api/videos").status_code == 400
+    assert TestClient(create_app(output), base_url="http://localhost:8000").get("/api/videos").status_code == 200
+
+
+def test_library_opens_the_input_folder_by_default(tmp_path, output):
+    client = TestClient(create_app(output, tmp_path / "input"), base_url="http://127.0.0.1")
+
+    listing = client.get("/api/library").json()
+
+    assert listing["folder"] == str((tmp_path / "input").resolve())
+    assert [v["file"] for v in listing["videos"]] == ["IMG_1.mp4"]
+    assert listing["stages"] == ["detection", "filtering", "tracking"]
+    assert listing["output"] == str(output.resolve())
+    # output/IMG_1 has detection and filtering made from this video: tracking is missing
+    assert listing["videos"][0]["results"]["start"] == "tracking"
+
+
+@pytest.mark.parametrize("params, status", [
+    ({"folder": "/nowhere/at/all"}, 404),
+    ({"settings": "not json"}, 400),
+    ({"settings": '{"detection": {"threshold": 5}}'}, 400),
+])
+def test_library_bad_requests(client, params, status):
+    assert client.get("/api/library", params=params).status_code == status
+
+
+def test_default_settings_have_explanations(client):
+    settings = client.get("/api/settings").json()
+
+    assert list(settings) == ["detection", "filtering", "tracking"]
+    assert settings["detection"][2]["name"] == "threshold" and settings["detection"][2]["help"]
+
+
+def test_thumbnail(client, tmp_path):
+    response = client.get("/api/thumbnail", params={"path": str(tmp_path / "input" / "IMG_1.mp4")})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert response.content[:2] == b"\xff\xd8"
+
+
+@pytest.mark.parametrize("path", ["input/IMG_1.mp4", "/nowhere/IMG_1.mp4", "{tmp}/output/IMG_1/config.json"])
+def test_thumbnail_only_of_videos(client, tmp_path, path):
+    assert client.get("/api/thumbnail", params={"path": path.format(tmp=tmp_path)}).status_code == 404
 
 
 def test_rerun_with_changed_settings_saves_new_results(client, output):

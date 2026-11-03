@@ -1,9 +1,10 @@
-// Play mode of the browser app (docs/app.md): a processed video with its stage results drawn on top.
+// Play page of the browser app (docs/app.md): a processed video with its stage results drawn on top.
 // The original video plays as it is; the boxes are drawn on a canvas over it from the saved stage outputs (JSON).
 
+import { $, el, requestJSON, showError } from "./dom.js";
 import { LAYERS, trackStyle } from "./layers.js";
+import { changedSettings, fixedSetting, markSettings, settingInputs, settingRow, usable } from "./settings.js";
 
-const $ = (id) => document.getElementById(id);
 const video = $("video");
 const overlay = $("overlay");
 const timeline = $("timeline");
@@ -29,72 +30,24 @@ const api = (name, path = "") => `/api/videos/${encodeURIComponent(name)}${path}
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const clampFrame = (n) => Math.min(Math.max(n, 0), state.frameCount - 1);
 
-async function getJSON(url) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail || `${response.status} ${response.statusText}: ${url}`);
-  }
-  return response.json();
-}
-
-function showError(message) {
-  $("error").textContent = message;
-  $("error").hidden = false;
-}
-
-function el(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
 // ---------------------------------------------------------------------------------------------------------------
-// Start: list of videos, or open the one in the URL (?video=IMG_4887&frame=120)
+// Start: open the video in the URL (/play?video=IMG_4887&frame=120); without one, go to the Videos page
 
 async function main() {
   const params = new URLSearchParams(location.search);
   const name = params.get("video");
-  const videos = await getJSON("/api/videos");
-  fillVideoSelect(videos, name);
   if (!name) {
-    showHome(videos);
+    location.replace("/");
     return;
   }
+  $("video-name").textContent = name;
   await openVideo(name, Number(params.get("frame")) || 0);
-}
-
-function fillVideoSelect(videos, current) {
-  const select = $("video-select");
-  const options = videos.map((v) => {
-    const option = new Option(v.video_found ? v.name : `${v.name} (video not found)`, v.name, false, v.name === current);
-    option.disabled = !v.video_found;
-    return option;
-  });
-  select.replaceChildren(new Option("Choose a video…", ""), ...options);
-  select.addEventListener("change", () => {
-    location.search = select.value ? `?video=${encodeURIComponent(select.value)}` : "";
-  });
-}
-
-function showHome(videos) {
-  $("home").hidden = false;
-  const items = videos.map((v) => {
-    const card = el(v.video_found ? "a" : "div", v.video_found ? "video-card" : "video-card disabled");
-    if (v.video_found) card.href = `?video=${encodeURIComponent(v.name)}`;
-    card.append(el("strong", "", v.name), el("span", "stages", v.video_found ? v.stages.join(" → ") : "video file not found"));
-    const li = el("li");
-    li.append(card);
-    return li;
-  });
-  $("video-list").replaceChildren(...(items.length ? items : [el("li", "muted", "No results yet.")]));
 }
 
 async function openVideo(name, startFrame) {
   state.name = name;
   document.title = `${name} · swim-analytics`;
-  state.details = await getJSON(api(name));
+  state.details = await requestJSON(api(name));
   const available = await loadLayers();
 
   const first = state.layers[available[0]].data;
@@ -125,7 +78,7 @@ async function loadLayers() {
   }
   const layers = {};
   await Promise.all(available.map(async (layer) => {
-    const data = await getJSON(api(state.name, `/results/${LAYERS[layer].stage}`));
+    const data = await requestJSON(api(state.name, `/results/${LAYERS[layer].stage}`));
     const frames = [];
     for (const f of data.frames) {
       f.rejected ??= []; // files saved before the filtering stage existed have no "rejected"
@@ -493,16 +446,11 @@ function buildSettings() {
       const summary = el("summary");
       summary.append(el("strong", "", stage), el("span", "settings-values", fields.map((f) => `${f.name} ${f.value}`).join(" · ")));
       group.append(summary, ...fields.map(fixedSetting),
-        el("p", "settings-note", `Re-running ${stage} takes minutes: change it on the command line.`));
+        el("p", "settings-note", `Re-running ${stage} takes minutes: process the video again on the Videos page.`));
       return group;
     }
     const group = el("fieldset", "settings-group");
-    group.append(el("legend", "", stage));
-    for (const f of fields) {
-      if (f.choices) group.append(choiceSetting(stage, f));
-      else if (typeof f.value === "number") group.append(numberSetting(stage, f));
-      else group.append(fixedSetting(f));
-    }
+    group.append(el("legend", "", stage), ...fields.map((f) => settingRow(stage, f, updateSettingsState)));
     return group;
   });
   if (!saved) groups.unshift(el("p", "settings-note", "No config.json: showing the default settings."));
@@ -511,106 +459,18 @@ function buildSettings() {
   updateSettingsState();
 }
 
-function numberSetting(stage, f) {
-  const id = `setting-${stage}-${f.name}`;
-  const range = el("input");
-  range.type = "range";
-  range.tabIndex = -1; // the number field next to it is the one for the keyboard
-  const number = el("input");
-  number.type = "number";
-  number.id = id;
-  number.required = true;
-  for (const input of [range, number]) {
-    if (f.min !== null) input.min = f.min;
-    if (f.max !== null) input.max = f.max;
-    input.step = f.step ?? "any";
-    input.value = f.value;
-  }
-  Object.assign(number.dataset, { stage, name: f.name, saved: f.value, type: f.type });
-  range.addEventListener("input", () => {
-    number.value = range.value;
-    updateSettingsState();
-  });
-  number.addEventListener("input", () => {
-    range.value = number.value;
-    updateSettingsState();
-  });
-
-  const label = el("label", "setting-name", f.name);
-  label.htmlFor = id;
-  const controls = el("div", "setting-controls");
-  controls.append(range, number);
-  const row = el("div", "setting");
-  row.append(label, controls, el("p", "setting-help", f.help));
-  return row;
-}
-
-function choiceSetting(stage, f) {
-  const id = `setting-${stage}-${f.name}`;
-  const select = el("select");
-  select.id = id;
-  select.replaceChildren(...f.choices.map((choice) => new Option(choice, choice, false, choice === f.value)));
-  Object.assign(select.dataset, { stage, name: f.name, saved: f.value, type: f.type });
-  select.addEventListener("change", updateSettingsState);
-
-  const head = el("div", "setting-head");
-  const label = el("label", "setting-name", f.name);
-  label.htmlFor = id;
-  head.append(label, select);
-  const row = el("div", "setting");
-  row.append(head, el("p", "setting-help", f.help));
-  return row;
-}
-
-function fixedSetting(f) {
-  const head = el("div", "setting-head");
-  head.append(el("span", "setting-name", f.name), el("span", "setting-value", String(f.value)));
-  const row = el("div", "setting");
-  row.append(head, el("p", "setting-help", f.help));
-  return row;
-}
-
-// The editable fields: number inputs and selects (each with data-stage, data-name, data-saved, data-type)
-const settingInputs = () => [...document.querySelectorAll("#settings [data-name]")];
-
-const parseSetting = (type, text) => (type === "str" ? text : Number(text));
-const settingValue = (input) => parseSetting(input.dataset.type, input.value);
-const isChanged = (input) => input.value !== "" && settingValue(input) !== parseSetting(input.dataset.type, input.dataset.saved);
-
-// A value is usable if present and in range; any decimal is fine (not only multiples of the slider step), except for
-// whole-number settings
-function usable(input) {
-  const v = input.validity;
-  if (v.valueMissing || v.badInput || v.rangeUnderflow || v.rangeOverflow) return false;
-  return input.dataset.type !== "int" || Number.isInteger(Number(input.value));
-}
-
-function changedSettings() {
-  const changes = {};
-  for (const input of settingInputs()) {
-    if (isChanged(input)) (changes[input.dataset.stage] ??= {})[input.dataset.name] = settingValue(input);
-  }
-  return changes;
-}
-
 function updateSettingsState() {
-  const inputs = settingInputs();
-  for (const input of inputs) {
-    const row = input.closest(".setting");
-    row.classList.toggle("changed", isChanged(input));
-    row.classList.toggle("invalid", !usable(input));
-  }
-  const changed = Object.keys(changedSettings()).length > 0;
-  $("apply-settings").disabled = !changed || !inputs.every(usable) || state.rerunning;
+  const { changed, valid } = markSettings($("settings"));
+  $("apply-settings").disabled = !changed || !valid || state.rerunning;
   $("reset-settings").hidden = !changed || state.rerunning;
 
   // A min_score below the detection threshold removes nothing: boxes below the threshold were never saved
-  const minScore = inputs.find((i) => i.dataset.stage === "filtering" && i.dataset.name === "min_score");
+  const minScore = settingInputs($("settings")).find((i) => i.dataset.stage === "filtering" && i.dataset.name === "min_score");
   const threshold = state.details.settings.detection?.find((f) => f.name === "threshold")?.value;
   const hint = $("settings-hint");
   hint.hidden = !(minScore && usable(minScore) && threshold !== undefined && Number(minScore.value) < threshold);
   hint.textContent = `Detection kept only boxes scoring above ${threshold}, so a lower min_score changes nothing. ` +
-    "For weaker boxes, re-run detection with a lower --detection-threshold.";
+    "For weaker boxes, process the video again with a lower detection threshold (Videos page).";
 }
 
 function setupSettings() {
@@ -623,7 +483,7 @@ function setupSettings() {
 
 async function applySettings(event) {
   event.preventDefault();
-  const changes = changedSettings();
+  const changes = changedSettings($("settings"));
   if (!Object.keys(changes).length || state.rerunning) return;
   const status = $("settings-status");
   state.rerunning = true;
@@ -631,13 +491,7 @@ async function applySettings(event) {
   status.className = "settings-status";
   status.textContent = `Re-running ${state.details.editable_stages.join(" → ")}…`;
   try {
-    const response = await fetch(api(state.name, "/rerun"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ settings: changes }),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(typeof body.detail === "string" ? body.detail : `${response.status} ${response.statusText}`);
+    const body = await requestJSON(api(state.name, "/rerun"), { settings: changes });
 
     const before = state.available.join();
     state.details = body;

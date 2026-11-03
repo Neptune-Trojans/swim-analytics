@@ -1,6 +1,7 @@
 """Stage 1: detect all persons in every frame of the video."""
 
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from swim.pipeline.config import DetectionConfig
@@ -17,7 +18,11 @@ def create_detector(config: DetectionConfig) -> Detector:
     raise ValueError(f"Unknown detection model: '{config.model}'")
 
 
-def detect(video_path: str | Path, config: DetectionConfig) -> VideoDetections:
+def detect(
+    video_path: str | Path, config: DetectionConfig, on_frame: Callable[[int, int], None] | None = None
+) -> VideoDetections:
+    """Detect persons in every frame. `on_frame(frames done, frames in the video)` is called after each frame; it may
+    raise to stop."""
     info = get_video_info(video_path)
     detector = create_detector(config)
     result = VideoDetections(
@@ -29,6 +34,8 @@ def detect(video_path: str | Path, config: DetectionConfig) -> VideoDetections:
         result.frames.append(
             FrameDetections(frame_idx=frame_idx, timestamp=frame_idx / info.fps, detections=detector.detect(frame))
         )
+        if on_frame:
+            on_frame(frame_idx + 1, info.frame_count)
         if (frame_idx + 1) % 30 == 0:
             print(f"  {frame_idx + 1}/{info.frame_count} frames ({(frame_idx + 1) / (time.time() - start):.1f} fps)")
 

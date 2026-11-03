@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>swim-analytics viewer</title>
+  <title>swim-analytics · Play</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%235b9dff'/%3E%3Cpath d='M5 19c3.5-3 7-3 11 0s7.5 3 11 0' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/style.css">
   <script type="module" src="/static/viewer.js"></script>
@@ -12,19 +12,13 @@
   <header class="topbar">
     <a class="brand" href="/">swim-analytics</a>
     <span class="mode">Play</span>
-    <select id="video-select" aria-label="Video"></select>
+    <strong id="video-name" class="video-name"></strong>
+    <a class="back" href="/">← Videos</a>
   </header>
 
   <div id="error" class="banner" role="alert" hidden></div>
 
-  <!-- No video chosen: list of processed videos -->
-  <main id="home" class="home" hidden>
-    <h1>Processed videos</h1>
-    <p class="muted">Results found in the output folder. Add one with <code>python -m swim.run --input &lt;video&gt;</code>.</p>
-    <ul id="video-list" class="video-list"></ul>
-  </main>
-
-  <!-- Play mode: video with the stage results drawn on top -->
+  <!-- Play page: video with the stage results drawn on top -->
   <main id="viewer" class="viewer" hidden>
     <section id="player" class="player">
       <div class="video-wrap">

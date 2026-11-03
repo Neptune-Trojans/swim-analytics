@@ -1,11 +1,13 @@
-"""Browser test of the viewer (Play mode): the frame number it shows must be the frame on screen, and the overlay
-must draw that frame's boxes.
+"""Browser tests of the app. Play page: the frame number it shows must be the frame on screen, and the overlay must
+draw that frame's boxes. Videos page: processing a video from the page and opening it.
 
 Drives headless Chrome (DevTools protocol) against the app, on a generated H.264 test video whose frames show their
 own index as a row of black / white squares (binary), so the picture on screen can be read back exactly. Each frame
 has one box whose x position depends on the frame index, so the overlay can be read back too.
 
 Also: changing a setting in the settings panel re-runs filtering and tracking and shows the new results.
+
+The Videos page test processes the test video with a stand-in for the detection model (conftest.py).
 
 Skipped without Chrome (or set CHROME_PATH). Leave it out with: pytest -m "not browser"
 """
@@ -121,14 +123,15 @@ def server(tmp_path_factory):
     settings.to_json(root / "output" / SETTINGS_VIDEO / "config.json")
 
     port = free_port()
-    app_server = uvicorn.Server(uvicorn.Config(create_app(root / "output"), host="127.0.0.1", port=port, log_level="warning"))
+    app = create_app(root / "output", root / "input")
+    app_server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=app_server.run, daemon=True)
     thread.start()
     deadline = time.time() + 10
     while not app_server.started:
         assert time.time() < deadline, "app server did not start"
         time.sleep(0.05)
-    yield f"http://127.0.0.1:{port}"
+    yield f"http://127.0.0.1:{port}", root
     app_server.should_exit = True
     thread.join(timeout=5)
 
@@ -228,7 +231,7 @@ class Viewer:
         return value
 
     def open(self, frame: int, video: str = VIDEO_NAME) -> None:
-        self.chrome.cdp("Page.navigate", url=f"{self.base_url}/?video={video}&frame={frame}")
+        self.chrome.cdp("Page.navigate", url=f"{self.base_url}/play?video={video}&frame={frame}")
         if self.wait_label(frame) != frame:
             error = self.chrome.js("document.getElementById('video').error?.code ?? null")
             if error == 4:
@@ -270,7 +273,7 @@ class Viewer:
 @pytest.fixture
 def viewer(chrome, server):
     chrome.exceptions.clear()
-    yield Viewer(chrome, server)
+    yield Viewer(chrome, server[0])
     assert chrome.exceptions == [], "exceptions in the page"
 
 
@@ -349,3 +352,24 @@ def test_changing_a_setting_reruns_and_shows_the_new_results(viewer):
     assert status.startswith("Done"), status
     assert "#1 person" in js("document.getElementById('frame-boxes').textContent")
     assert js("document.getElementById('setting-tracking-tracker').value") == "sort"
+
+
+def test_videos_page_processes_a_video_and_opens_it(viewer, server, fake_model):
+    js = viewer.chrome.js
+    base_url, root = server
+    row = "document.querySelector('.video-row')"
+    viewer.chrome.cdp("Page.navigate", url=f"{base_url}/?folder={root / 'input'}")
+    assert viewer.wait_for(f"{row}?.querySelector('.video-file').textContent", lambda text: text == "test.mp4")
+    assert js(f"{row}.querySelector('.status').textContent") == "Not processed"
+
+    js(f"{row}.querySelector('.btn-primary').click()")  # Process
+    job = viewer.wait_for(f"{row}.querySelector('.job').textContent", lambda text: text.startswith("Processed in"))
+
+    assert job.startswith("Processed in"), job
+    assert js(f"{row}.querySelector('.status').textContent") == "Up to date"
+    assert js(f"[...{row}.querySelectorAll('.chip.saved')].map(c => c.textContent)") == ["detection", "filtering", "tracking"]
+    js(f"{row}.querySelector('a.btn-secondary').click()")  # Open
+    viewer.wait_label(0)
+    assert js("location.pathname + location.search").startswith("/play?video=test")
+    assert js("document.getElementById('frame-title').textContent") == "Frame 0 · tracks"
+    assert "#1 person" in js("document.getElementById('frame-boxes').textContent")

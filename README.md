@@ -33,8 +33,10 @@ swim/
   utils/              # shared helpers, not specific to any stage (one file per topic)
     video.py          #   read frames, write video, video info
   app/                # local web app: python -m swim.app (docs/app.md)
-    server.py         #   lists processed videos, serves video + stage results
-    static/           #   the page: viewer.js (Play mode), layers.js (drawing layers, mirrors visualization/)
+    server.py         #   the API: folders and videos, processing jobs, video + stage results
+    library.py        #   videos in a folder and the state of their results
+    jobs.py           #   background processing (one video at a time) through run_pipeline()
+    static/           #   the pages: videos.js (Videos), viewer.js (Play), layers.js (drawing layers, mirrors visualization/)
 tests/                # unit tests, same folder structure as swim/
 data/
   input/              # source swim videos
@@ -52,7 +54,7 @@ Run all commands from the repo root.
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e ".[app,dev,notebooks]"   # dependencies from pyproject.toml (app: viewer, dev: tests)
+.venv/bin/pip install -e ".[app,dev,notebooks]"   # dependencies from pyproject.toml (app: web app, dev: tests)
 ```
 
 ### 1. Process a video
@@ -76,24 +78,30 @@ More options:
 .venv/bin/python -m swim.run --help                                                                     # all options
 ```
 
-### 2. Open the viewer
-
-Watch processed videos in the browser, with the results drawn on top:
+### 2. Or use the app: process videos and watch them in the browser
 
 ```bash
 .venv/bin/python -m swim.app
 ```
 
-Then open <http://127.0.0.1:8000> in **Chrome or Safari** (iPhone videos are HEVC; Firefox may not play them) and pick a
-video. In the **Settings** panel you can change the filtering and tracking settings (e.g. `min_score`, the tracker) and
-press **Apply**: filtering and tracking re-run from the saved detections in under a second, the results are saved and
-shown on the video. Stop the viewer with
-`Ctrl+C`. Options: `--port 8080` (another port), `--output <folder>` (another results
-folder). See [docs/app.md](docs/app.md).
+Then open <http://127.0.0.1:8000> in **Chrome or Safari** (iPhone videos are HEVC; Firefox may not play them).
+
+- **Videos page:** the videos in a folder (`data/input` first; type another path or click a subfolder), each with
+  the state of its results: *Not processed*, *Up to date*, or *Needs update* with what changed (e.g. results made
+  with another detection threshold, or a stage not run yet). **Process** / **Update** runs the pipeline in the
+  background (only the stages that need it), with progress and **Cancel**; tick several videos to queue them.
+  **Settings for processing** changes the settings used. Results go to `data/output/<video name>/`, as on the
+  command line.
+- **Play page** (**Open**): the video with the results drawn on top, frame by frame. In its **Settings** panel you
+  can change the filtering and tracking settings (e.g. `min_score`, the tracker) and press **Apply**: they re-run
+  from the saved detections in under a second, and the results are saved and shown on the video.
+
+Stop the app with `Ctrl+C` (this also stops a video being processed). Options: `--input <folder>` (folder opened
+first), `--output <folder>` (another results folder), `--port 8080`. See [docs/app.md](docs/app.md).
 
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest                    # all tests (the viewer's browser test needs Chrome, ~3 s)
+.venv/bin/python -m pytest                    # all tests (the app's browser tests need Chrome, ~4 s)
 .venv/bin/python -m pytest -m "not browser"   # without the browser test
 ```

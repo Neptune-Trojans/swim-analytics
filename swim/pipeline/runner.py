@@ -4,6 +4,7 @@ Planned stages: detection -> filtering -> tracking -> swimmer -> pose -> metrics
 Implemented so far: detection, filtering, tracking.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -24,6 +25,10 @@ STAGE_OUTPUTS = {
     "tracking": ("3_tracks.json", VideoDetections),
 }
 
+# progress(stage, frames done, frames in the video): called when a stage starts (0) and ends (all frames), and after
+# every frame in the slow stages (detection). It may raise to stop the run: the stage being run is not saved.
+Progress = Callable[[str, int, int], None]
+
 
 @dataclass
 class PipelineResult:
@@ -40,10 +45,15 @@ def run_pipeline(
     config: PipelineConfig | None = None,
     start: str | None = None,
     stop: str | None = None,
+    progress: Progress | None = None,
 ) -> PipelineResult:
     """Run stages `start` to `stop` (default: all) and save their outputs to `output_dir`.
 
     Stages before `start` are loaded from their saved files; stages after `stop` are skipped.
+
+    The saved results stay consistent even if the run stops halfway (an error, or `progress` raising to cancel): each
+    stage's output is saved when the stage is done, and only then are the outputs of the stages after it (made from
+    the old one) deleted and its settings recorded in config.json.
     """
     config = config or PipelineConfig()
     output_dir = Path(output_dir)
@@ -51,25 +61,20 @@ def run_pipeline(
     stop_idx = STAGES.index(stop or STAGES[-1])
     if start_idx > stop_idx:
         raise ValueError(f"Stage '{start}' comes after stage '{stop}'")
-    get_video_info(video_path)  # fail before creating any output if the video can't be opened
+    frame_count = get_video_info(video_path).frame_count  # fail before creating any output if the video can't be opened
 
     output_dir.mkdir(parents=True, exist_ok=True)
     config_path = output_dir / "config.json"
-    if start_idx > 0 and config_path.exists():
-        # Stages before `start` are loaded, not run: record the settings their saved results were made with.
+    # The settings the saved results were made with, updated as each stage is saved
+    recorded = PipelineConfig.from_json(config_path) if config_path.exists() else config
+    if start_idx > 0:
+        # Stages before `start` are loaded, not run: keep the settings their saved results were made with.
         # Each stage's settings are the PipelineConfig field with the stage's name.
-        saved = PipelineConfig.from_json(config_path)
-        config = replace(config, **{name: getattr(saved, name) for name in STAGES[:start_idx] if hasattr(config, name)})
-    config.to_json(config_path)
-
-    # Saved results of stages after `stop` were made from the old results of the stages about to run: remove them
-    for name in STAGES[stop_idx + 1:]:
-        path = output_dir / STAGE_OUTPUTS[name][0]
-        if path.exists():
-            path.unlink()
-            print(f"[{name}] removed outdated {path}")
+        config = replace(config, **{name: getattr(recorded, name) for name in STAGES[:start_idx] if hasattr(config, name)})
+    report = progress or (lambda stage, done, total: None)
 
     def stage(name, run):
+        nonlocal recorded
         idx = STAGES.index(name)
         filename, data_cls = STAGE_OUTPUTS[name]
         path = output_dir / filename
@@ -81,15 +86,31 @@ def run_pipeline(
         if idx > stop_idx:
             return None
         print(f"[{name}] running")
+        report(name, 0, frame_count)
         run().to_json(path)
         print(f"[{name}] saved {path}")
+        # Saved results of the later stages were made from this stage's old output: remove them (the ones up to
+        # `stop` are re-made next)
+        for later in STAGES[idx + 1:]:
+            later_path = output_dir / STAGE_OUTPUTS[later][0]
+            if later_path.exists():
+                later_path.unlink()
+                if STAGES.index(later) > stop_idx:
+                    print(f"[{later}] removed outdated {later_path}")
+        if hasattr(config, name):
+            recorded = replace(recorded, **{name: getattr(config, name)})
+        recorded.to_json(config_path)
+        report(name, frame_count, frame_count)
         # Continue from the saved file (not the in-memory result), so a full run and a run resumed
         # with --from give later stages exactly the same input
         return data_cls.from_json(path)
 
+    def on_frame(done: int, total: int) -> None:
+        report("detection", done, total)
+
     result = PipelineResult()
     # 1. Detection: all persons in every frame
-    result.detections = stage("detection", lambda: detect(video_path, config.detection))
+    result.detections = stage("detection", lambda: detect(video_path, config.detection, on_frame))
     # 2. Filtering: remove problematic detections (kept as "rejected" with the reason)
     result.filtered = stage("filtering", lambda: filter_detections(result.detections, config.filtering))
     # 3. Tracking: the same person keeps the same track_id from frame to frame
