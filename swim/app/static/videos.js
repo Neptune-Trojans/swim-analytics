@@ -129,7 +129,7 @@ function buildSettings(defaults) {
     return;
   }
   state.changes = changedSettings($("settings"));
-  if (Object.keys(state.changes).length) $("process-settings").open = true;
+  // Closed even with changed settings, so the videos are in view: its summary line lists the changes
   showSettingsSummary();
 
   $("reset-settings").onclick = () => {

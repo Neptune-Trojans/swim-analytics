@@ -373,3 +373,20 @@ def test_videos_page_processes_a_video_and_opens_it(viewer, server, fake_model):
     assert js("location.pathname + location.search").startswith("/play?video=test")
     assert js("document.getElementById('frame-title').textContent") == "Frame 0 · tracks"
     assert "#1 person" in js("document.getElementById('frame-boxes').textContent")
+
+
+def test_videos_page_settings_stay_closed_with_changed_settings(viewer, server):
+    js = viewer.chrome.js
+    base_url, root = server
+    viewer.chrome.cdp("Page.navigate", url=f"{base_url}/?folder={root / 'input'}")
+    viewer.wait_for("document.querySelectorAll('.video-row').length", lambda n: n > 0)
+    js("localStorage.setItem('swim.videos.settings', JSON.stringify({detection: {threshold: 0.3}}))")
+    try:
+        js("location.reload()")  # as when coming back from the Play page
+        summary = viewer.wait_for("document.getElementById('settings-summary')?.textContent ?? ''",
+                                  lambda text: "threshold" in text)
+
+        assert summary == "· changed: detection.threshold 0.3"
+        assert js("document.getElementById('process-settings').open") is False
+    finally:
+        js("localStorage.removeItem('swim.videos.settings')")
