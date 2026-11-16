@@ -3,6 +3,7 @@
 - Videos page (`/`): the videos in a folder, the state of their results, processing in the background (jobs.py).
 - Play page (`/play?video=<name>`): a processed video with its results drawn on top; re-runs the fast stages with
   settings changed in the page.
+- Labels page (`/labels`): check and fix the pool labels of frames picked for training (docs/labeling.md).
 
 Start it with `python -m swim.app`. Processing goes through run_pipeline(), as on the command line.
 """
@@ -10,6 +11,7 @@ Start it with `python -m swim.app`. Processing goes through run_pipeline(), as o
 import json
 import threading
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -19,6 +21,9 @@ from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from swim.app.jobs import JobQueue
+from swim.labeling.dataset import Dataset
+from swim.labeling.labels import CLASSES, FrameLabels
+from swim.labeling.shapes import edit_water
 from swim.app.library import (
     VIDEO_MEDIA_TYPES, find_results, is_video, list_folder, results_status, results_video, saved_config, saved_stages,
     thumbnail, video_info,
@@ -40,15 +45,29 @@ class RerunRequest(BaseModel):
     settings: Settings = {}
 
 
+class SaveLabelsRequest(BaseModel):
+    status: str
+    water: list[list[list[float]]] = []  # polygons: [[x, y], ...]
+    ropes: list[dict] = []  # {"points": [[x1, y1], [x2, y2]], "widths": [w1, w2]}
+
+
+class EditWaterRequest(BaseModel):
+    water: list[list[list[float]]] = []  # the frame's water polygons as they are on the page
+    add: list[list[float]] | None = None  # a polygon to merge into the water
+    subtract: list[list[float]] | None = None  # a polygon to cut out of the water
+
+
 class ProcessRequest(BaseModel):
     videos: list[str]  # absolute paths, as the Videos page lists them
     settings: Settings = {}  # changes to the default settings
     replace: bool = False  # allowed to replace results that were made from another video with the same name
 
 
-def create_app(output_dir: str | Path = "data/output", input_dir: str | Path = "data/input") -> FastAPI:
+def create_app(output_dir: str | Path = "data/output", input_dir: str | Path = "data/input",
+               labels_dir: str | Path = "data/labels/pool") -> FastAPI:
     output_dir = Path(output_dir)
     input_dir = Path(input_dir)
+    dataset = Dataset(labels_dir)
     app = FastAPI(title="swim-analytics")
     # Only requests addressed to this computer: a web page on another site can't reach the server by pointing its
     # own domain name at 127.0.0.1 (DNS rebinding), now that the server lists folders and runs jobs
@@ -229,6 +248,71 @@ def create_app(output_dir: str | Path = "data/output", input_dir: str | Path = "
             raise HTTPException(404, f"No saved '{stage}' results for '{name}'")
         return FileResponse(folder / STAGE_OUTPUTS[stage][0], media_type="application/json")
 
+
+    # -----------------------------------------------------------------------------------------------------------
+    # Labels page: pool labels of frames picked for training (python -m swim.labeling, docs/labeling.md)
+
+    def labeled_frame(name: str):
+        # Only names of picked frames are accepted, so a request can't reach any other file
+        frame = dataset.frame(name)
+        if frame is None:
+            raise HTTPException(404, f"No frame '{name}' in {dataset.root}")
+        return frame
+
+    @app.get("/api/labels")
+    def list_labels() -> dict:
+        frames = []
+        for frame in dataset.frames():
+            labels = dataset.labels(frame.name)
+            frames.append({"name": frame.name, "video": frame.video, "frame_idx": frame.frame_idx,
+                           "status": labels.status if labels else "no labels",
+                           "water": len(labels.water) if labels else 0, "ropes": len(labels.ropes) if labels else 0})
+        return {"dataset": str(dataset.root), "classes": CLASSES, "frames": frames, "counts": dataset.status_counts()}
+
+    @app.get("/api/labels/{name}")
+    def frame_labels(name: str) -> dict:
+        """The frame, its labels (empty ones if the model has not labeled it yet) and the model's original labels."""
+        frame = labeled_frame(name)
+        labels = dataset.labels(name) or dataset.empty_labels(frame)
+        sam3 = dataset.sam3(name)
+        return {"frame": asdict(frame), "labels": labels.to_dict(), "sam3": sam3.to_dict() if sam3 else None}
+
+    @app.get("/api/labels/{name}/image")
+    def frame_image(name: str) -> FileResponse:
+        labeled_frame(name)
+        path = dataset.image_path(name)
+        if not path.is_file():
+            raise HTTPException(404, f"Image not found: {path}")
+        return FileResponse(path, media_type="image/jpeg")
+
+    @app.put("/api/labels/{name}")
+    def save_labels(name: str, request: SaveLabelsRequest) -> dict:
+        """Save the frame's shapes and status; the frame's video, index and size come from the dataset, not the page."""
+        frame = labeled_frame(name)
+        previous = dataset.labels(name)
+        try:
+            labels = FrameLabels.from_dict({
+                "video": frame.video, "frame_idx": frame.frame_idx, "image": frame.image, "width": frame.width,
+                "height": frame.height, "status": request.status, "water": request.water, "ropes": request.ropes,
+                "source": previous.source if previous else "",
+            })
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        dataset.save(labels)
+        return {"labels": labels.to_dict(), "counts": dataset.status_counts()}
+
+    @app.post("/api/labels/{name}/water")
+    def edit_frame_water(name: str, request: EditWaterRequest) -> dict:
+        """The page's + Water / - Water: the water polygons with an area merged in or cut out, simplified again
+        (nothing is saved)."""
+        frame = labeled_frame(name)
+        drawn = [p for p in (request.add, request.subtract) if p is not None]
+        if any(len(polygon) < 3 for polygon in request.water + drawn):
+            raise HTTPException(400, "Every polygon needs at least 3 corners")
+        water = edit_water([[tuple(pt) for pt in polygon] for polygon in request.water], frame.width, frame.height,
+                           add=request.add, subtract=request.subtract)
+        return {"water": [[[round(x, 1), round(y, 1)] for x, y in polygon] for polygon in water]}
+
     # -----------------------------------------------------------------------------------------------------------
     # Pages
 
@@ -241,6 +325,10 @@ def create_app(output_dir: str | Path = "data/output", input_dir: str | Path = "
     @app.get("/play")
     def play_page() -> FileResponse:
         return FileResponse(STATIC_DIR / "play.html")
+
+    @app.get("/labels")
+    def labels_page() -> FileResponse:
+        return FileResponse(STATIC_DIR / "labels.html")
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     return app

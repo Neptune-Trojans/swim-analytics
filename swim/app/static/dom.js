@@ -18,10 +18,11 @@ export function hideError() {
   $("error").hidden = true;
 }
 
-// GET (no body) or POST (body sent as JSON); the server's error message ("detail") becomes the Error's message
-export async function requestJSON(url, body) {
+// GET (no body) or POST / `method` (body sent as JSON); the server's error message ("detail") becomes the Error's
+// message
+export async function requestJSON(url, body, method = "POST") {
   const options = body === undefined ? {} : {
-    method: "POST",
+    method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   };

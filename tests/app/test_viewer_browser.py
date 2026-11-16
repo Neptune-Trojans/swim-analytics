@@ -7,7 +7,8 @@ has one box whose x position depends on the frame index, so the overlay can be r
 
 Also: changing a setting in the settings panel re-runs filtering and tracking and shows the new results.
 
-The Videos page test processes the test video with a stand-in for the detection model (conftest.py).
+The Videos page test processes the test video with a stand-in for the detection model (conftest.py). The Labels
+page test drags a rope end, saves, and adds a rope.
 
 Skipped without Chrome (or set CHROME_PATH). Leave it out with: pytest -m "not browser"
 """
@@ -22,10 +23,13 @@ import time
 import urllib.request
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pytest
 
 from swim.app.server import create_app
+from swim.labeling.dataset import Dataset, Frame
+from swim.labeling.labels import FrameLabels, Rope
 from swim.pipeline.config import PipelineConfig
 from swim.stages.detection.types import BBox, Detection, FrameDetections, VideoDetections
 from swim.utils.video import video_writer
@@ -39,6 +43,7 @@ FPS, WIDTH, HEIGHT, FRAMES = 30.0, 640, 360, 90
 BITS, SQUARE, SQUARE_X0, SQUARE_STEP, SQUARE_Y = 7, 64, 24, 84, 40  # frame index as squares, bit k at x0 + k * step
 BOX_X0, BOX_STEP, BOX_Y1, BOX_Y2 = 20, 6, 200, 330  # frame i's box starts at x = BOX_X0 + i * BOX_STEP
 VIDEO_NAME = "test_video"
+LABEL_A, LABEL_B = "test_000010", "test_000020"  # frames on the Labels page
 SETTINGS_VIDEO = "test_video_settings"  # a separate results folder: its test re-runs filtering
 
 # Read back, in the page: the frame index shown in the video, the frame whose box the overlay draws, the frame label
@@ -95,6 +100,18 @@ def write_test_results(folder: Path, video: Path) -> None:
     VideoDetections(str(video), FPS, WIDTH, HEIGHT, "test", frames).to_json(folder / "1_detections.json")
 
 
+def write_test_labels(dataset: Dataset) -> None:
+    """Two frames to label: LABEL_A with the model's labels (one water area, one rope), LABEL_B without."""
+    frames = [Frame(name, "data/input/test.MOV", i, WIDTH, HEIGHT) for i, name in ((10, LABEL_A), (20, LABEL_B))]
+    dataset.add_frames(frames)
+    dataset.images.mkdir(parents=True)
+    for f in frames:
+        cv2.imwrite(str(dataset.image_path(f.name)), np.full((HEIGHT, WIDTH, 3), 180, np.uint8))
+    dataset.save_sam3(FrameLabels(video=frames[0].video, frame_idx=10, image=frames[0].image, width=WIDTH, height=HEIGHT,
+                                  water=[[(20, 100), (620, 100), (620, 340), (20, 340)]],
+                                  ropes=[Rope([(40, 200), (600, 180)], [8, 4])], source="test"))
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -122,8 +139,10 @@ def server(tmp_path_factory):
     settings = PipelineConfig().with_changes({"detection": {"threshold": 0.5}})
     settings.to_json(root / "output" / SETTINGS_VIDEO / "config.json")
 
+    write_test_labels(Dataset(root / "labels"))
+
     port = free_port()
-    app = create_app(root / "output", root / "input")
+    app = create_app(root / "output", root / "input", root / "labels")
     app_server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=app_server.run, daemon=True)
     thread.start()
@@ -390,3 +409,61 @@ def test_videos_page_settings_stay_closed_with_changed_settings(viewer, server):
         assert js("document.getElementById('process-settings').open") is False
     finally:
         js("localStorage.removeItem('swim.videos.settings')")
+
+
+def test_labels_page_drag_save_and_add_a_rope(viewer, server):
+    js = viewer.chrome.js
+    base_url, root = server
+    dataset = Dataset(root / "labels")
+    viewer.chrome.cdp("Page.navigate", url=f"{base_url}/labels?frame={LABEL_A}")
+    assert viewer.wait_for("window.__labels?.frame() ?? null", lambda name: name == LABEL_A) == LABEL_A
+
+    def screen(x, y):  # image point -> viewport point
+        return js(f"""(() => {{ const r = document.getElementById('canvas').getBoundingClientRect();
+          const [x, y] = __labels.toScreen({x}, {y}); return [r.left + x, r.top + y]; }})()""")
+
+    def mouse(kind, point):
+        viewer.chrome.cdp("Input.dispatchMouseEvent", type=kind, x=point[0], y=point[1], button="left",
+                          buttons=1 if kind != "mouseReleased" else 0, clickCount=1)
+
+    # Drag the rope's left end 40 px down (in frame pixels)
+    start, target = screen(40, 200), screen(40, 240)
+    mouse("mousePressed", start)
+    for k in range(1, 6):
+        mouse("mouseMoved", [start[0] + (target[0] - start[0]) * k / 5, start[1] + (target[1] - start[1]) * k / 5])
+    mouse("mouseReleased", target)
+    x, y = js("__labels.shapes().ropes[0].points[0]")
+    assert abs(x - 40) < 1.5 and abs(y - 240) < 1.5
+    assert js("!document.getElementById('unsaved').hidden")
+
+    viewer.key("s", 83)
+    assert viewer.wait_for("document.getElementById('message').textContent", lambda t: t.startswith("Saved")) == "Saved as fixed."
+    saved = dataset.labels(LABEL_A)
+    assert saved.status == "fixed" and abs(saved.ropes[0].points[0][1] - 240) < 1.5
+    assert dataset.sam3(LABEL_A).ropes[0].points[0] == (40, 200)  # the model's labels stay
+
+    # Next frame (no labels yet): add a rope with R and two clicks, then Save & next (A)
+    viewer.key("ArrowRight", 39)
+    assert viewer.wait_for("window.__labels.frame()", lambda name: name == LABEL_B) == LABEL_B
+    viewer.key("r", 82)
+    for point in (screen(50, 150), screen(590, 160)):
+        mouse("mousePressed", point)
+        mouse("mouseReleased", point)
+    assert js("__labels.shapes().ropes.length") == 1
+    viewer.key("a", 65)
+    viewer.wait_for("document.getElementById('message').textContent", lambda t: t.startswith("Saved"))
+    [rope] = dataset.labels(LABEL_B).ropes
+    assert abs(rope.points[0][0] - 50) < 1.5 and abs(rope.points[1][0] - 590) < 1.5
+    assert rope.widths == [8.0, 8.0]  # no other ropes in the frame to take the width from: 8 px
+
+    # + Water on frame B (no water yet): W, click 4 corners, Enter
+    viewer.chrome.cdp("Page.navigate", url=f"{base_url}/labels?frame={LABEL_B}")
+    viewer.wait_for("window.__labels?.frame() ?? null", lambda name: name == LABEL_B)
+    viewer.key("w", 87)
+    for point in (screen(100, 120), screen(500, 120), screen(500, 300), screen(100, 300)):
+        mouse("mousePressed", point)
+        mouse("mouseReleased", point)
+    viewer.key("Enter", 13)
+    water = viewer.wait_for("__labels.shapes().water", lambda w: len(w) == 1)
+    xs, ys = zip(*water[0])
+    assert len(water[0]) == 4 and abs(min(xs) - 100) < 2 and abs(max(ys) - 300) < 2

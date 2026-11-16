@@ -11,6 +11,8 @@ def main() -> None:
                                      description="Process videos and watch the results in the browser.")
     parser.add_argument("--input", default="data/input", help="Folder the Videos page opens first (default: data/input)")
     parser.add_argument("--output", default="data/output", help="Results root folder, as for swim.run (default: data/output)")
+    parser.add_argument("--labels", default="data/labels/pool",
+                        help="Labeling dataset for the Labels page (default: data/labels/pool)")
     parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
     args = parser.parse_args()
 
@@ -20,7 +22,7 @@ def main() -> None:
 
     print(f"swim-analytics: http://127.0.0.1:{args.port}  (Ctrl+C to stop)")
     # Local only: listen on 127.0.0.1, not on the network
-    uvicorn.run(create_app(args.output, args.input), host="127.0.0.1", port=args.port, log_level="warning")
+    uvicorn.run(create_app(args.output, args.input, args.labels), host="127.0.0.1", port=args.port, log_level="warning")
 
 
 if __name__ == "__main__":

@@ -36,11 +36,13 @@ swim/
     server.py         #   the API: folders and videos, processing jobs, video + stage results
     library.py        #   videos in a folder and the state of their results
     jobs.py           #   background processing (one video at a time) through run_pipeline()
-    static/           #   the pages: videos.js (Videos), viewer.js (Play), layers.js (drawing layers, mirrors visualization/)
+    static/           #   the pages: videos.js (Videos), viewer.js (Play), labels.js (Labels), layers.js (drawing layers)
+  labeling/           # training data for the pool model: python -m swim.labeling (docs/labeling.md)
 tests/                # unit tests, same folder structure as swim/
 data/
   input/              # source swim videos
   output/             # results, one folder per video
+  labels/pool/        # labeling dataset: frames, SAM3's labels, checked labels, training masks (git-ignored)
 docs/                 # design documents
 notebooks/            # experiments (detection_stats.ipynb: statistics of detected boxes)
 research/             # research notes (one .md per topic; local only, git-ignored)
@@ -98,6 +100,18 @@ Then open <http://127.0.0.1:8000> in **Chrome or Safari** (iPhone videos are HEV
 
 Stop the app with `Ctrl+C` (this also stops a video being processed). Options: `--input <folder>` (folder opened
 first), `--output <folder>` (another results folder), `--port 8080`. See [docs/app.md](docs/app.md).
+
+### 3. Label pool frames (training data for the pool model)
+
+SAM3-LiteText labels the pool's water and lane ropes on frames picked from the videos; you check and fix them on the
+**Labels** page of the app (link at the top of the Videos page). See [docs/labeling.md](docs/labeling.md).
+
+```bash
+.venv/bin/python -m swim.labeling pick data/input/*.MOV   # pick frames (one every 2 s, at most 25 per video)
+.venv/bin/python -m swim.labeling auto                     # SAM3-LiteText labels them (about 2 s per frame; downloads 2 GB once)
+.venv/bin/python -m swim.app                               # check and fix: http://127.0.0.1:8000/labels
+.venv/bin/python -m swim.labeling masks                    # training masks from the checked frames
+```
 
 ## Tests
 
