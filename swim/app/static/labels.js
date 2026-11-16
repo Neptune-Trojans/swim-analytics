@@ -28,6 +28,7 @@ const state = {
   selection: null, // {layer: "water" | "ropes", index, corner?}
   mode: "edit", // "edit" | "add-rope" | "add-water"
   draft: [], // dots clicked while adding an area
+  pending: null, // a + Water on its way to the server (a promise)
   mouse: null, // last mouse position over the canvas (screen)
   drag: null, // {type: "pan" | "corner", ...}
   undo: [],
@@ -85,6 +86,7 @@ async function openFrame(name) {
 
 // Save the open frame: "fixed" if its shapes differ from SAM3's, "accepted" if not
 async function save() {
+  await finishEditing();
   const status = state.sam3 && rounded(state.shapes) === rounded(state.sam3) ? "accepted" : "fixed";
   const body = { status, ...state.shapes };
   const result = await requestJSON(`/api/labels/${encodeURIComponent(state.frame.name)}`, body, "PUT");
@@ -102,6 +104,7 @@ async function save() {
 // Go to another frame; unsaved changes are saved first (they are a check of this frame)
 async function go(name) {
   try {
+    await finishEditing();
     if (changed()) await save();
     await openFrame(name);
     hideError();
@@ -196,7 +199,7 @@ function setupControls() {
     }
   });
   window.addEventListener("beforeunload", (e) => {
-    if (changed()) e.preventDefault();
+    if (changed() || state.draft.length) e.preventDefault();
   });
 }
 
@@ -294,16 +297,25 @@ function finishDraft() {
     });
     setMode("edit");
   } else {
-    finishWater();
+    state.pending = finishWater();
   }
+}
+
+// Before saving or leaving the frame: an area being drawn is finished (it is on screen, so it is saved), and a
+// + Water still on its way to the server is waited for
+async function finishEditing() {
+  finishDraft();
+  await state.pending;
 }
 
 // + Water: the server merges the drawn area into the water and simplifies the outlines
 async function finishWater() {
+  const name = state.frame.name;
   const body = { water: state.shapes.water, add: state.draft };
   setMode("edit");
   try {
-    const { water } = await requestJSON(`/api/labels/${encodeURIComponent(state.frame.name)}/water`, body);
+    const { water } = await requestJSON(`/api/labels/${encodeURIComponent(name)}/water`, body);
+    if (state.frame.name !== name) return; // another frame is open by now
     edit(() => {
       state.shapes.water = water;
       state.selection = null;

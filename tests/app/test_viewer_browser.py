@@ -495,14 +495,17 @@ def test_labels_page_drag_save_and_add_a_rope(viewer, server):
     assert np.allclose(rope, [(50, 150), (640, 155), (640, 165), (50, 160)], atol=1.5)
     assert rope[1][0] == rope[2][0] == 640
 
-    # + Water on frame B (no water yet): W, click 4 corners, Enter
+    # + Water on frame B (no water yet): W, click 4 corners, then save without finishing the area: what is on screen
+    # is saved (the area is finished first, and the save waits for the server's merge)
     viewer.chrome.cdp("Page.navigate", url=f"{base_url}/labels?frame={LABEL_B}")
     viewer.wait_for("window.__labels?.frame() ?? null", lambda name: name == LABEL_B)
     viewer.key("w", 87)
     for point in (screen(100, 120), screen(500, 120), screen(500, 300), screen(100, 300)):
         mouse("mousePressed", point)
         mouse("mouseReleased", point)
-    viewer.key("Enter", 13)
-    water = viewer.wait_for("__labels.shapes().water", lambda w: len(w) == 1)
-    xs, ys = zip(*water[0])
-    assert len(water[0]) == 4 and abs(min(xs) - 100) < 2 and abs(max(ys) - 300) < 2
+    viewer.key("s", 83)
+    viewer.wait_for("document.getElementById('message').textContent", lambda t: t.startswith("Saved"))
+    [water] = dataset.labels(LABEL_B).water
+    xs, ys = zip(*water)
+    assert len(water) == 4 and abs(min(xs) - 100) < 2 and abs(max(ys) - 300) < 2
+    assert js("__labels.shapes().water.length") == 1 and js("document.getElementById('mode-hint').hidden")
