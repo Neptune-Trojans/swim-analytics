@@ -21,7 +21,7 @@ const state = {
   frame: null, // the open frame: name, video, frame_idx, width, height
   shapes: null, // {water: [polygon, ...], ropes: [polygon, ...]}, polygon: [[x, y], ...]
   status: "sam3",
-  sam3: null, // the model's shapes, to tell "fixed" from "accepted" and for "Back to SAM3's labels"
+  sam3: null, // the model's shapes, to tell "fixed" from "accepted"
   saved: "", // shapes as last saved (JSON), to know whether there are unsaved changes
   image: null,
   view: { scale: 1, x: 0, y: 0 }, // screen = image point * scale + (x, y), in CSS pixels
@@ -144,7 +144,6 @@ function updatePanel() {
   $("status").textContent = labels[state.status] ?? state.status;
   $("status").className = `status ${isChecked(state.status) ? "ok" : "warn"}`;
   $("unsaved").hidden = !changed();
-  $("reset").hidden = !state.sam3;
   $("undo").disabled = !state.undo.length;
   $("redo").disabled = !state.redo.length;
   $("delete").disabled = !state.selection;
@@ -158,10 +157,6 @@ function setupControls() {
   });
   $("save").addEventListener("click", () => save().catch((e) => showError(e.message)));
   $("accept").addEventListener("click", saveAndNext);
-  $("reset").addEventListener("click", () => edit(() => {
-    state.shapes = structuredClone(state.sam3);
-    state.selection = null;
-  }));
   $("add-rope").addEventListener("click", () => setMode("add-rope"));
   $("add-water").addEventListener("click", () => setMode("add-water"));
   $("delete").addEventListener("click", deleteSelection);
