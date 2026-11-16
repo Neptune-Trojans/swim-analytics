@@ -431,6 +431,22 @@ a.video-file[href]:hover { color: var(--accent); }
   font-size: 13px;
   pointer-events: none;
 }
+.class-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 3px 9px;
+  border-left: 4px solid var(--muted);
+  border-radius: 4px;
+  background: rgba(11, 18, 32, 0.9);
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.class-tip.water { border-left-color: rgb(0, 110, 255); }
+.class-tip.rope { border-left-color: rgb(255, 140, 0); }
+.class-tip span { color: var(--muted); }
 .label-panel { min-height: 0; overflow-y: auto; }
 .frame-info { margin: 0 0 6px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .label-actions { display: flex; gap: 8px; margin: 10px 0 8px; }

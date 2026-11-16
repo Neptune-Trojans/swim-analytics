@@ -175,6 +175,7 @@ function setupControls() {
   });
   $("show").addEventListener("change", (e) => {
     state.show = e.target.checked;
+    hideClassTip();
     draw();
   });
   for (const button of document.querySelectorAll(".label-panel button")) button.addEventListener("click", () => button.blur());
@@ -197,6 +198,7 @@ function setupControls() {
       h: () => {
         state.show = !state.show;
         $("show").checked = state.show;
+        hideClassTip();
         draw();
       },
       f: fit,
@@ -272,6 +274,7 @@ function setMode(mode) {
   };
   $("mode-hint").hidden = mode === "edit";
   $("mode-hint").textContent = hints[mode] ?? "";
+  hideClassTip();
   canvas.style.cursor = mode === "edit" ? "grab" : "crosshair";
   for (const [id, m] of [["add-rope", "add-rope"], ["add-water", "add-water"], ["cut-water", "cut-water"], ["join", "join"]]) {
     $(id).classList.toggle("active", state.mode === m);
@@ -593,8 +596,10 @@ function setupCanvas() {
     if (!d) {
       if (state.mode !== "edit") draw();
       else canvas.style.cursor = hoverCursor(state.show ? hitTest(s) : null);
+      showClassTip(s);
       return;
     }
+    hideClassTip();
     if (d.type === "pan") {
       if (dist(s, d.start) > 3) d.moved = true;
       state.view.x += s[0] - d.last[0];
@@ -639,12 +644,67 @@ function setupCanvas() {
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
     zoomAt(point(e), Math.exp(-e.deltaY * 0.0015));
+    showClassTip(point(e)); // the shape under the pointer changes with the zoom
   }, { passive: false });
   canvas.addEventListener("pointerleave", () => {
     state.mouse = null;
+    hideClassTip();
     draw();
   });
   new ResizeObserver(() => draw()).observe(canvas);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Class tooltip: the class under the pointer, as the training mask will have it (rope over water over other)
+
+const CLASS_NAMES = { rope: "Lane rope", water: "Water", other: "Other" };
+const HANDLE_HINTS = {
+  corner: "drag to move this corner",
+  end: "drag to move this end",
+  width: "drag to change the rope's width at this end",
+  mid: "drag to add a corner here",
+};
+
+// The class at screen point `s`: {kind: "rope" | "water" | "other", index}, or null outside the frame. A thin rope
+// counts within a few screen pixels of its line, as for selecting it.
+function classAt(s) {
+  const p = toImage(s);
+  if (p[0] < 0 || p[1] < 0 || p[0] > state.frame.width || p[1] > state.frame.height) return null;
+  for (let i = state.shapes.ropes.length - 1; i >= 0; i--) {
+    const rope = state.shapes.ropes[i];
+    if (insidePolygon(p, ropeCorners(rope)) || distanceToSegment(p, ...rope.points) <= HIT / state.view.scale) {
+      return { kind: "rope", index: i };
+    }
+  }
+  const water = state.shapes.water.findIndex((polygon) => insidePolygon(p, polygon));
+  return water >= 0 ? { kind: "water", index: water } : { kind: "other" };
+}
+
+function showClassTip(s) {
+  const tip = $("class-tip");
+  const found = state.frame && state.show && state.mode === "edit" ? classAt(s) : null;
+  if (!found) {
+    hideClassTip();
+    return;
+  }
+  const hit = hitTest(s);
+  // Over a handle, the class of the shape the handle belongs to
+  const kind = hit?.kind === "end" || hit?.kind === "width" ? "rope" : hit?.kind === "corner" || hit?.kind === "mid" ? "water" : found.kind;
+  const index = hit && HANDLE_HINTS[hit.kind] ? hit.index : found.index;
+  const name = kind === "rope" ? `${CLASS_NAMES.rope} ${index + 1}` : CLASS_NAMES[kind];
+  tip.replaceChildren(el("strong", "", name));
+  if (hit && HANDLE_HINTS[hit.kind]) tip.append(el("span", "", ` · ${HANDLE_HINTS[hit.kind]}`));
+  tip.className = `class-tip ${kind}`;
+  tip.hidden = false;
+  // Next to the pointer, kept inside the editor
+  const box = canvas.getBoundingClientRect();
+  const x = Math.min(s[0] + 16, box.width - tip.offsetWidth - 4);
+  const y = s[1] + 20 + tip.offsetHeight > box.height ? s[1] - tip.offsetHeight - 10 : s[1] + 20;
+  tip.style.transform = `translate(${Math.max(x, 4)}px, ${y}px)`;
+}
+
+function hideClassTip() {
+  $("class-tip").hidden = true;
 }
 
 function hoverCursor(hit) {

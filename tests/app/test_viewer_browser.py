@@ -426,6 +426,19 @@ def test_labels_page_drag_save_and_add_a_rope(viewer, server):
         viewer.chrome.cdp("Input.dispatchMouseEvent", type=kind, x=point[0], y=point[1], button="left",
                           buttons=1 if kind != "mouseReleased" else 0, clickCount=1)
 
+    def hover(point):  # move the mouse without a button; the tooltip's text, or None if hidden
+        viewer.chrome.cdp("Input.dispatchMouseEvent", type="mouseMoved", x=point[0], y=point[1], buttons=0)
+        return js("(() => { const t = document.getElementById('class-tip'); return t.hidden ? null : t.textContent; })()")
+
+    # Class tooltip: the class under the mouse, as in the training mask (rope over water over other)
+    assert hover(screen(300, 300)) == "Water"
+    assert hover(screen(320, 190)) == "Lane rope 1"  # on the rope's line
+    assert hover(screen(10, 50)) == "Other"  # outside the pool
+    assert hover(screen(40, 200)) == "Lane rope 1 · drag to move this end"
+    viewer.key("h", 72)  # labels hidden: no tooltip
+    assert hover(screen(300, 300)) is None
+    viewer.key("h", 72)
+
     # Drag the rope's left end 40 px down (in frame pixels)
     start, target = screen(40, 200), screen(40, 240)
     mouse("mousePressed", start)
