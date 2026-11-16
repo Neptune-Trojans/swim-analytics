@@ -11,7 +11,7 @@ License: the image encoder comes from Meta's SAM 3 (SAM License).
 import numpy as np
 
 from swim.labeling import shapes
-from swim.labeling.labels import Point, Rope
+from swim.labeling.labels import Point
 
 MODEL_ID = "vil-uob/sam3-litetext-s0"
 PROMPTS = {"water": "swimming pool", "rope": "lane rope", "floor line": "blue stripe", "person": "person"}
@@ -50,11 +50,11 @@ class Sam3Labeler:
                 result[key] = [m.astype(bool) for m in found["masks"].cpu().numpy()]
         return result
 
-    def label(self, frame: np.ndarray) -> tuple[list[list[Point]], list[Rope]]:
-        """The frame's pool polygons and ropes."""
+    def label(self, frame: np.ndarray) -> tuple[list[list[Point]], list[list[Point]]]:
+        """The frame's pool polygons and rope polygons (each rope's band: 4 corners)."""
         m = self.masks(frame)
         water = np.zeros(frame.shape[:2], bool)
         for mask in m["water"]:
             water |= mask
         water_polygons = shapes.pool_polygons(water, persons=m["person"], parts=m["rope"] + m["floor line"])
-        return water_polygons, shapes.ropes_from_masks(m["rope"])
+        return water_polygons, [rope.outline() for rope in shapes.ropes_from_masks(m["rope"])]

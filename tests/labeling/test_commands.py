@@ -3,7 +3,7 @@ import cv2
 from swim.labeling.commands import auto_label, pick, write_masks
 from swim.labeling.dataset import Dataset
 from swim.labeling.frames import pick_indices
-from swim.labeling.labels import FrameLabels, Rope
+from swim.labeling.labels import FrameLabels
 
 
 class FakeLabeler:
@@ -15,7 +15,8 @@ class FakeLabeler:
     def label(self, frame):
         self.calls += 1
         h, w = frame.shape[:2]
-        return [[(0, h / 2), (w - 1, h / 2), (w - 1, h - 1), (0, h - 1)]], [Rope([(0, h * 0.7), (w - 1, h * 0.7)], [3, 3])]
+        water = [[(0, h / 2), (w - 1, h / 2), (w - 1, h - 1), (0, h - 1)]]
+        return water, [[(0, h * 0.7 - 1.5), (w - 1, h * 0.7 - 1.5), (w - 1, h * 0.7 + 1.5), (0, h * 0.7 + 1.5)]]
 
 
 def test_pick_indices_spreads_frames_and_caps_them():

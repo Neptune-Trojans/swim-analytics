@@ -1,16 +1,17 @@
 """Pixel masks (from SAM3-LiteText) to label shapes: the pool area as polygons with few corners, each lane rope as a
-straight line with a width at each end (docs/labeling.md).
+straight line with a width at each end, saved as the 4 corners of that band (docs/labeling.md).
 
 Measured on 42 frames (2026-11-16): a corner wherever the outline bends more than 8 px keeps the pool area within IoU
 0.99 of the mask with about 50 corners instead of about 6,000 outline points.
 """
 
 import math
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
 
-from swim.labeling.labels import Point, Rope
+from swim.labeling.labels import Point, band_corners
 
 WATER_TOLERANCE = 8.0  # pixels: the polygon stays within this distance of the mask's outline
 MIN_POOL_PIECE = 0.005  # pieces of pool smaller than this share of the frame are dropped
@@ -20,6 +21,18 @@ PERSON_RING = 15  # pixels around a person mask that decide whether the person i
 MIN_ROPE_PIXELS = 40
 MIN_ROPE_ELONGATION = 5.0  # length / width: blobs are not ropes
 SAME_ROPE_ANGLE = 3.0  # degrees: two rope pieces this parallel and on one line are one rope
+
+
+@dataclass
+class Rope:
+    """A lane rope fitted to a mask: a straight line between two points, with its width (pixels) at each end."""
+
+    points: list[Point]
+    widths: list[float]
+
+    def outline(self) -> list[Point]:
+        """The rope as a label: the 4 corners of its band."""
+        return band_corners(self.points, self.widths)
 
 
 def pool_polygons(water: np.ndarray, persons: list[np.ndarray] = (), parts: list[np.ndarray] = (),

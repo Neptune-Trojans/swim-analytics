@@ -10,13 +10,13 @@ import numpy as np
 
 from swim.labeling.dataset import Dataset
 from swim.labeling.frames import add_video_frames
-from swim.labeling.labels import REVIEWED, FrameLabels, Point, Rope, rasterize
+from swim.labeling.labels import REVIEWED, FrameLabels, Point, rasterize
 
 
 class Labeler(Protocol):
     name: str
 
-    def label(self, frame: np.ndarray) -> tuple[list[list[Point]], list[Rope]]: ...
+    def label(self, frame: np.ndarray) -> tuple[list[list[Point]], list[list[Point]]]: ...  # water, rope polygons
 
 
 def create_labeler() -> Labeler:

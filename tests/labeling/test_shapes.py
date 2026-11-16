@@ -1,8 +1,7 @@
 import cv2
 import numpy as np
 
-from swim.labeling.labels import Rope
-from swim.labeling.shapes import join_pieces, person_in_water, pool_polygons, rope_from_mask, ropes_from_masks
+from swim.labeling.shapes import Rope, join_pieces, person_in_water, pool_polygons, rope_from_mask, ropes_from_masks
 
 H, W = 200, 300
 

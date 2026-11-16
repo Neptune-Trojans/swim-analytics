@@ -7,10 +7,10 @@ from fastapi.testclient import TestClient
 
 from swim.app.server import create_app
 from swim.labeling.dataset import Dataset, Frame
-from swim.labeling.labels import FrameLabels, Rope
+from swim.labeling.labels import FrameLabels
 
 WATER = [[[0, 20], [99, 20], [99, 59], [0, 59]]]
-ROPES = [{"points": [[0, 40], [99, 35]], "widths": [4, 2]}]
+ROPES = [[[0, 38], [99, 34], [99, 36], [0, 42]]]
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def setup(tmp_path):
     for f in frames:
         cv2.imwrite(str(dataset.image_path(f.name)), np.zeros((60, 100, 3), np.uint8))
     dataset.save_sam3(FrameLabels(video=frames[0].video, frame_idx=10, image=frames[0].image, width=100, height=60,
-                                  water=[[(0, 20), (99, 20), (99, 59), (0, 59)]], ropes=[Rope([(0, 40), (99, 35)], [4, 2])],
+                                  water=[[(0, 20), (99, 20), (99, 59), (0, 59)]], ropes=[[(0, 38), (99, 34), (99, 36), (0, 42)]],
                                   source="sam3-litetext-s0"))
     client = TestClient(create_app(tmp_path / "output", tmp_path / "input", dataset.root), base_url="http://127.0.0.1")
     return client, dataset
@@ -56,15 +56,16 @@ def test_frame_labels_and_image(setup):
 
 def test_save_fixed_labels(setup):
     client, dataset = setup
-    ropes = [{"points": [[0, 41], [99, 33]], "widths": [5, 2]}]
+    ropes = [[[0, 39], [99, 32], [99, 34], [0, 43], [0, 41]]]
 
     response = client.put("/api/labels/IMG_1_000010", json={"status": "fixed", "water": WATER, "ropes": ropes})
 
     assert response.status_code == 200
     assert response.json()["counts"]["fixed"] == 1
     saved = dataset.labels("IMG_1_000010")
-    assert (saved.status, saved.ropes, saved.source) == ("fixed", [Rope([(0, 41), (99, 33)], [5, 2])], "sam3-litetext-s0")
-    assert dataset.sam3("IMG_1_000010").ropes == [Rope([(0, 40), (99, 35)], [4, 2])]  # the model's labels stay as they were
+    assert (saved.status, saved.ropes, saved.source) == ("fixed", [[(0, 39), (99, 32), (99, 34), (0, 43), (0, 41)]],
+                                                         "sam3-litetext-s0")
+    assert dataset.sam3("IMG_1_000010").ropes == [[(0, 38), (99, 34), (99, 36), (0, 42)]]  # the model's stay as they were
 
 
 def test_a_frame_without_model_labels_can_be_labeled_by_hand(setup):
@@ -77,14 +78,14 @@ def test_a_frame_without_model_labels_can_be_labeled_by_hand(setup):
 @pytest.mark.parametrize("body", [
     {"status": "done", "water": WATER, "ropes": []},
     {"status": "fixed", "water": [[[0, 0], [5, 5]]], "ropes": []},
-    {"status": "fixed", "water": WATER, "ropes": [{"points": [[0, 0]], "widths": [3]}]},
-    {"status": "fixed", "water": WATER, "ropes": [{"points": [[0, 0], [9, 9]], "widths": [3, -1]}]},
+    {"status": "fixed", "water": WATER, "ropes": [[[0, 0], [9, 9]]]},
+    {"status": "fixed", "water": WATER, "ropes": [{"points": [[0, 0], [9, 9]], "widths": [3, 3]}]},  # old format: files only
 ])
 def test_bad_labels_are_refused_and_nothing_changes(setup, body):
     client, dataset = setup
     before = dataset.labels("IMG_1_000010")
 
-    assert client.put("/api/labels/IMG_1_000010", json=body).status_code == 400
+    assert client.put("/api/labels/IMG_1_000010", json=body).status_code in (400, 422)  # 422: not even the request's form
     assert dataset.labels("IMG_1_000010") == before
 
 

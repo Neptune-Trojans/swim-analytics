@@ -1,6 +1,6 @@
 // Labels page (docs/labeling.md): check and fix the pool labels SAM3 made for frames picked for training.
-// A frame's labels are shapes: the pool's water as polygons, each lane rope as a straight line with a width at each
-// end, in pixels of the full-size frame. Edits are points: drag corners and rope ends, add, delete, join.
+// A frame's labels are polygons, in pixels of the full-size frame: the pool's water, and each lane rope's outline.
+// Edits are dots: click dots around an area to add it, drag corners, add corners on edges, delete, join ropes.
 
 import { $, el, hideError, requestJSON, showError } from "./dom.js";
 
@@ -12,21 +12,23 @@ const WATER = { fill: [0, 110, 255], line: "rgb(120, 200, 255)" };
 const ROPE = { fill: [255, 140, 0], line: "rgb(255, 190, 80)" };
 const HANDLE = 6; // handle radius, screen pixels
 const HIT = 8; // how close (screen pixels) a click must be to a point or line
+const CLOSE = 5; // screen pixels: while adding an area, a click this close to the first dot closes it
+const SAME_DOT = 3; // screen pixels: a click this close to the last dot is the same dot (a double-click)
 
 const state = {
   frames: [], // GET /api/labels: name, video, frame_idx, status, counts of shapes
   frame: null, // the open frame: name, video, frame_idx, width, height
-  shapes: null, // {water: [[[x, y], ...]], ropes: [{points: [[x, y], [x, y]], widths: [w1, w2]}]}
+  shapes: null, // {water: [polygon, ...], ropes: [polygon, ...]}, polygon: [[x, y], ...]
   status: "sam3",
   sam3: null, // the model's shapes, to tell "fixed" from "accepted" and for "Back to SAM3's labels"
   saved: "", // shapes as last saved (JSON), to know whether there are unsaved changes
   image: null,
   view: { scale: 1, x: 0, y: 0 }, // screen = image point * scale + (x, y), in CSS pixels
-  selection: null, // {kind: "polygon" | "rope", index, corner?, end?}
-  mode: "edit", // "edit" | "add-rope" | "add-water" | "join"
-  draft: [], // points clicked while adding a shape
+  selection: null, // {layer: "water" | "ropes", index, corner?}
+  mode: "edit", // "edit" | "add-rope" | "add-water" | "cut-water" | "join"
+  draft: [], // dots clicked while adding an area
   mouse: null, // last mouse position over the canvas (screen)
-  drag: null, // {type: "pan" | "corner" | "end" | "width", ...}
+  drag: null, // {type: "pan" | "corner", ...}
   undo: [],
   redo: [],
   show: true,
@@ -146,7 +148,7 @@ function updatePanel() {
   $("reset").hidden = !state.sam3;
   $("undo").disabled = !state.undo.length;
   $("redo").disabled = !state.redo.length;
-  $("join").disabled = state.selection?.kind !== "rope";
+  $("join").disabled = state.selection?.layer !== "ropes";
   $("delete").disabled = !state.selection;
   $("shape-counts").textContent = `${state.shapes.water.length} water area(s), ${state.shapes.ropes.length} rope(s)`;
 }
@@ -189,12 +191,12 @@ function setupControls() {
       arrowright: () => neighbour(1) && go(neighbour(1).name),
       a: saveAndNext,
       s: () => save().catch((err) => showError(err.message)),
-      z: () => (e.shiftKey ? redo() : undo()),
+      z: () => (DRAW_MODES.includes(state.mode) ? deleteKey() : e.shiftKey ? redo() : undo()), // while adding: the last dot
       y: redo,
       r: () => setMode("add-rope"),
       w: () => setMode("add-water"),
       e: () => setMode("cut-water"),
-      j: () => state.selection?.kind === "rope" && setMode("join"),
+      j: () => state.selection?.layer === "ropes" && setMode("join"),
       h: () => {
         state.show = !state.show;
         $("show").checked = state.show;
@@ -203,9 +205,9 @@ function setupControls() {
       },
       f: fit,
       0: fit,
-      delete: deleteSelection,
-      backspace: deleteSelection,
-      enter: finishWater,
+      delete: deleteKey,
+      backspace: deleteKey,
+      enter: finishDraft,
       escape: () => {
         if (state.mode !== "edit") setMode("edit");
         else state.selection = null;
@@ -266,36 +268,66 @@ function redo() {
 function setMode(mode) {
   state.mode = mode;
   state.draft = [];
-  const hints = {
-    "add-rope": "Click the two ends of the rope (Esc to cancel)",
-    "add-water": "Click around the area to add to the water, Enter to finish (Esc to cancel)",
-    "cut-water": "Click around the area to remove from the water, Enter to finish (Esc to cancel)",
-    join: "Click the rope to join with the selected one (Esc to cancel)",
-  };
-  $("mode-hint").hidden = mode === "edit";
-  $("mode-hint").textContent = hints[mode] ?? "";
+  updateHint();
   hideClassTip();
   canvas.style.cursor = mode === "edit" ? "grab" : "crosshair";
-  for (const [id, m] of [["add-rope", "add-rope"], ["add-water", "add-water"], ["cut-water", "cut-water"], ["join", "join"]]) {
-    $(id).classList.toggle("active", state.mode === m);
-  }
+  for (const m of ["add-rope", "add-water", "cut-water", "join"]) $(m).classList.toggle("active", state.mode === m);
   draw();
+}
+
+// What to do now, above the frame
+function updateHint() {
+  const finish = "click the first dot or press Enter to finish (drag: move the frame; Backspace: remove the last dot; Esc: cancel)";
+  const hints = {
+    "add-rope": `Rope: click dots around it; ${finish}`,
+    "add-water": `Add water: click dots around the area; ${finish}`,
+    "cut-water": `Remove water: click dots around the area; ${finish}`,
+    join: "Click the rope to join with the selected one (Esc: cancel)",
+  };
+  $("mode-hint").hidden = state.mode === "edit";
+  $("mode-hint").textContent = hints[state.mode] ?? "";
+}
+
+const DRAW_MODES = ["add-rope", "add-water", "cut-water"];
+
+// Delete / Backspace: while drawing, the last dot; else the selected corner or area
+function deleteKey() {
+  if (DRAW_MODES.includes(state.mode)) {
+    state.draft.pop();
+    draw();
+  } else {
+    deleteSelection();
+  }
 }
 
 function deleteSelection() {
   const s = state.selection;
   if (!s) return;
   edit(() => {
-    if (s.kind === "rope") state.shapes.ropes.splice(s.index, 1);
-    else if (s.corner !== undefined && state.shapes.water[s.index].length > 3) state.shapes.water[s.index].splice(s.corner, 1);
-    else state.shapes.water.splice(s.index, 1); // a polygon, or a corner of a triangle: the whole area
+    const polygons = state.shapes[s.layer];
+    if (s.corner !== undefined && polygons[s.index].length > 3) polygons[s.index].splice(s.corner, 1);
+    else polygons.splice(s.index, 1); // the area, or a corner of a triangle: the whole area
     state.selection = null;
   });
 }
 
+// The dots clicked so far become an area: a new rope, or water merged in / cut out
+function finishDraft() {
+  if (!DRAW_MODES.includes(state.mode) || state.draft.length < 3) return;
+  if (state.mode === "add-rope") {
+    const rope = state.draft;
+    edit(() => {
+      state.shapes.ropes.push(rope);
+      state.selection = { layer: "ropes", index: state.shapes.ropes.length - 1 };
+    });
+    setMode("edit");
+  } else {
+    finishWater();
+  }
+}
+
 // + Water / - Water: the server merges the drawn area into the water or cuts it out, and simplifies the outlines
 async function finishWater() {
-  if ((state.mode !== "add-water" && state.mode !== "cut-water") || state.draft.length < 3) return;
   const body = { water: state.shapes.water, [state.mode === "add-water" ? "add" : "subtract"]: state.draft };
   setMode("edit");
   try {
@@ -309,25 +341,21 @@ async function finishWater() {
   }
 }
 
-// Width of a new rope: the median of the frame's other ropes, else 8 px
-function defaultWidth() {
-  const widths = state.shapes.ropes.flatMap((r) => r.widths).sort((a, b) => a - b);
-  return widths.length ? widths[Math.floor(widths.length / 2)] : 8;
+// One rope from two (e.g. SAM3 found a rope as two pieces): the outline around both
+function convexHull(points) {
+  const sorted = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const half = (list) => {
+    const hull = [];
+    for (const p of list) {
+      while (hull.length >= 2 && cross(hull[hull.length - 2], hull[hull.length - 1], p) <= 0) hull.pop();
+      hull.push(p);
+    }
+    hull.pop();
+    return hull;
+  };
+  return [...half(sorted), ...half(sorted.reverse())];
 }
-
-// One rope from two: the two farthest ends along the longer rope, with the widths at those ends
-function joinRopes(a, b) {
-  const longer = length(a) >= length(b) ? a : b;
-  const [p, q] = longer.points;
-  const d = [(q[0] - p[0]) / length(longer), (q[1] - p[1]) / length(longer)];
-  const ends = [...a.points.map((pt, k) => [pt, a.widths[k]]), ...b.points.map((pt, k) => [pt, b.widths[k]])];
-  const along = ends.map(([pt]) => pt[0] * d[0] + pt[1] * d[1]);
-  const first = ends[along.indexOf(Math.min(...along))];
-  const last = ends[along.indexOf(Math.max(...along))];
-  return { points: [first[0], last[0]], widths: [first[1], last[1]] };
-}
-
-const length = (rope) => Math.hypot(rope.points[1][0] - rope.points[0][0], rope.points[1][1] - rope.points[0][1]);
 
 // ---------------------------------------------------------------------------------------------------------------
 // View: fit, zoom, pan
@@ -356,6 +384,11 @@ function zoomAt(point, factor) {
 // ---------------------------------------------------------------------------------------------------------------
 // Drawing
 
+const LAYERS = {
+  water: { color: WATER, alpha: () => state.opacity, width: 2 },
+  ropes: { color: ROPE, alpha: () => Math.min(state.opacity + 0.25, 0.9), width: 1 },
+};
+
 function draw() {
   const dpr = window.devicePixelRatio || 1;
   const w = Math.round(canvas.clientWidth * dpr);
@@ -369,65 +402,81 @@ function draw() {
   if (!state.image) return;
   ctx.setTransform(dpr * state.view.scale, 0, 0, dpr * state.view.scale, dpr * state.view.x, dpr * state.view.y);
   ctx.drawImage(state.image, 0, 0);
+  const px = 1 / state.view.scale; // one screen pixel, in image pixels
   if (state.show) {
-    const px = 1 / state.view.scale; // one screen pixel, in image pixels
-    state.shapes.water.forEach((polygon, i) => {
-      const selected = state.selection?.kind === "polygon" && state.selection.index === i;
-      ctx.beginPath();
-      polygon.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-      ctx.closePath();
-      ctx.fillStyle = `rgba(${WATER.fill}, ${state.opacity})`;
-      ctx.fill();
-      ctx.strokeStyle = selected ? "#ffffff" : WATER.line;
-      ctx.lineWidth = (selected ? 3 : 2) * px;
-      ctx.stroke();
-    });
-    state.shapes.ropes.forEach((rope, i) => {
-      const selected = state.selection?.kind === "rope" && state.selection.index === i;
-      const corners = ropeCorners(rope);
-      ctx.beginPath();
-      corners.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-      ctx.closePath();
-      ctx.fillStyle = `rgba(${ROPE.fill}, ${Math.min(state.opacity + 0.25, 0.9)})`;
-      ctx.fill();
-      ctx.strokeStyle = selected ? "#ffffff" : ROPE.line;
-      ctx.lineWidth = (selected ? 2 : 1) * px;
-      ctx.stroke();
-    });
+    for (const [layer, look] of Object.entries(LAYERS)) {
+      state.shapes[layer].forEach((polygon, i) => {
+        const selected = state.selection?.layer === layer && state.selection.index === i;
+        polygonPath(polygon);
+        ctx.fillStyle = `rgba(${look.color.fill}, ${look.alpha()})`;
+        ctx.fill();
+        ctx.strokeStyle = selected ? "#ffffff" : look.color.line;
+        ctx.lineWidth = (selected ? look.width + 1 : look.width) * px;
+        ctx.stroke();
+      });
+    }
   }
+  drawDraft(px);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // handles: screen pixels, same size at any zoom
   if (state.show) drawHandles();
-  drawDraft();
+  drawDraftDots();
 }
 
+function polygonPath(polygon) {
+  ctx.beginPath();
+  polygon.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  ctx.closePath();
+}
+
+// Corners of every area (water: squares, ropes: circles); the selected area also gets + on its edges
 function drawHandles() {
   const sel = state.selection;
-  state.shapes.water.forEach((polygon, i) => {
-    for (const p of polygon) square(toScreen(p), HANDLE - 1, WATER.line);
-    if (sel?.kind === "polygon" && sel.index === i) {
-      if (sel.corner !== undefined) square(toScreen(polygon[sel.corner]), HANDLE + 1, "#ffffff");
-      polygon.forEach((p, k) => plus(toScreen(midpoint(p, polygon[(k + 1) % polygon.length]))));
-    }
-  });
-  state.shapes.ropes.forEach((rope, i) => {
-    for (const p of rope.points) circle(toScreen(p), HANDLE, ROPE.line);
-    if (sel?.kind === "rope" && sel.index === i) {
-      for (const [end, side] of widthHandles()) diamond(toScreen(widthHandlePoint(rope, end, side)), "#ffffff");
-    }
-  });
+  for (const [layer, look] of Object.entries(LAYERS)) {
+    const mark = layer === "ropes" ? circle : square;
+    state.shapes[layer].forEach((polygon, i) => {
+      for (const p of polygon) mark(toScreen(p), HANDLE - 1, look.color.line);
+      if (sel?.layer === layer && sel.index === i) {
+        if (sel.corner !== undefined) mark(toScreen(polygon[sel.corner]), HANDLE + 1, "#ffffff");
+        polygon.forEach((p, k) => plus(toScreen(midpoint(p, polygon[(k + 1) % polygon.length]))));
+      }
+    });
+  }
 }
 
-function drawDraft() {
-  if (state.mode === "edit" || !state.draft.length) return;
-  const pts = [...state.draft.map(toScreen), ...(state.mouse ? [state.mouse] : [])];
-  ctx.strokeStyle = state.mode === "add-rope" ? ROPE.line : state.mode === "cut-water" ? "#ff6b6b" : WATER.line;
-  ctx.lineWidth = 2;
-  ctx.setLineDash([6, 4]);
+const draftColor = () => (state.mode === "add-rope" ? ROPE : state.mode === "cut-water" ? { fill: [255, 107, 107], line: "#ff6b6b" } : WATER);
+
+// The area being added: the dots connected in order, filled from the third dot on (the closing edge dashed)
+function drawDraft(px) {
+  if (!DRAW_MODES.includes(state.mode) || state.draft.length < 2) return;
+  const color = draftColor();
+  if (state.draft.length >= 3) {
+    polygonPath(state.draft);
+    ctx.fillStyle = `rgba(${color.fill}, 0.4)`;
+    ctx.fill();
+  }
+  ctx.strokeStyle = color.line;
+  ctx.lineWidth = 2 * px;
   ctx.beginPath();
-  pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  state.draft.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
   ctx.stroke();
-  ctx.setLineDash([]);
-  for (const p of state.draft) circle(toScreen(p), HANDLE - 1, "#ffffff");
+  if (state.draft.length >= 3) {
+    const [first, last] = [state.draft[0], state.draft[state.draft.length - 1]];
+    ctx.setLineDash([6 * px, 4 * px]);
+    ctx.beginPath();
+    ctx.moveTo(...last);
+    ctx.lineTo(...first);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+// The dots, in screen pixels; the first one larger once it can close the area
+function drawDraftDots() {
+  if (!DRAW_MODES.includes(state.mode)) return;
+  state.draft.forEach((p, k) => {
+    const closes = k === 0 && state.draft.length >= 3;
+    circle(toScreen(p), closes ? CLOSE : HANDLE - 2, closes ? draftColor().line : "#ffffff");
+  });
 }
 
 function square([x, y], r, color) {
@@ -448,20 +497,6 @@ function circle([x, y], r, color) {
   ctx.stroke();
 }
 
-function diamond([x, y], color) {
-  const r = HANDLE;
-  ctx.beginPath();
-  ctx.moveTo(x, y - r);
-  ctx.lineTo(x + r, y);
-  ctx.lineTo(x, y + r);
-  ctx.lineTo(x - r, y);
-  ctx.closePath();
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.strokeStyle = "#0b1220";
-  ctx.stroke();
-}
-
 function plus([x, y]) {
   ctx.beginPath();
   ctx.arc(x, y, HANDLE - 1, 0, 2 * Math.PI);
@@ -478,26 +513,6 @@ function plus([x, y]) {
 }
 
 const midpoint = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-
-// The rope's band (4 corners), as swim/labeling/labels.py rope_corners()
-function ropeCorners(rope) {
-  const [[x1, y1], [x2, y2]] = rope.points;
-  const len = Math.hypot(x2 - x1, y2 - y1) || 1;
-  const [ax, ay] = [-(y2 - y1) / len, (x2 - x1) / len];
-  const [w1, w2] = rope.widths.map((w) => w / 2);
-  return [[x1 + ax * w1, y1 + ay * w1], [x2 + ax * w2, y2 + ay * w2], [x2 - ax * w2, y2 - ay * w2], [x1 - ax * w1, y1 - ay * w1]];
-}
-
-const widthHandles = () => [[0, 1], [0, -1], [1, 1], [1, -1]];
-
-function widthHandlePoint(rope, end, side) {
-  const [[x1, y1], [x2, y2]] = rope.points;
-  const len = Math.hypot(x2 - x1, y2 - y1) || 1;
-  const [ax, ay] = [-(y2 - y1) / len, (x2 - x1) / len];
-  const [x, y] = rope.points[end];
-  const r = rope.widths[end] / 2 + 6 / state.view.scale; // just outside the band
-  return [x + side * ax * r, y + side * ay * r];
-}
 
 // ---------------------------------------------------------------------------------------------------------------
 // Mouse: what is under the pointer, dragging, clicking
@@ -520,41 +535,41 @@ function insidePolygon([x, y], polygon) {
   return inside;
 }
 
-// What a click at screen point `s` hits, most specific first
-function hitTest(s) {
-  const sel = state.selection;
-  if (sel?.kind === "rope") {
-    const rope = state.shapes.ropes[sel.index];
-    for (const [end, side] of widthHandles()) {
-      if (dist(s, toScreen(widthHandlePoint(rope, end, side))) <= HIT) return { kind: "width", index: sel.index, end };
+// The rope under image point `p` (index, or -1): inside its outline, or a few screen pixels from it (far ropes are thin)
+function ropeAt(p) {
+  const reach = HIT / 2 / state.view.scale;
+  for (let i = state.shapes.ropes.length - 1; i >= 0; i--) {
+    const polygon = state.shapes.ropes[i];
+    if (insidePolygon(p, polygon) || polygon.some((q, k) => distanceToSegment(p, q, polygon[(k + 1) % polygon.length]) <= reach)) {
+      return i;
     }
   }
-  for (let i = state.shapes.ropes.length - 1; i >= 0; i--) {
-    const end = state.shapes.ropes[i].points.findIndex((p) => dist(s, toScreen(p)) <= HIT);
-    if (end >= 0) return { kind: "end", index: i, end };
+  return -1;
+}
+
+// What a click at screen point `s` hits, most specific first: {kind: "corner" | "mid" | "area", layer, index, ...}
+function hitTest(s) {
+  for (const layer of ["ropes", "water"]) { // ropes are drawn on top
+    const polygons = state.shapes[layer];
+    for (let i = polygons.length - 1; i >= 0; i--) {
+      const corner = polygons[i].findIndex((p) => dist(s, toScreen(p)) <= HIT);
+      if (corner >= 0) return { kind: "corner", layer, index: i, corner };
+    }
   }
-  for (let i = state.shapes.water.length - 1; i >= 0; i--) {
-    const corner = state.shapes.water[i].findIndex((p) => dist(s, toScreen(p)) <= HIT);
-    if (corner >= 0) return { kind: "corner", index: i, corner };
-  }
-  if (sel?.kind === "polygon") {
-    const polygon = state.shapes.water[sel.index];
+  const sel = state.selection;
+  if (sel) {
+    const polygon = state.shapes[sel.layer][sel.index];
     for (let k = 0; k < polygon.length; k++) {
       if (dist(s, toScreen(midpoint(polygon[k], polygon[(k + 1) % polygon.length]))) <= HIT) {
-        return { kind: "mid", index: sel.index, edge: k };
+        return { kind: "mid", layer: sel.layer, index: sel.index, edge: k };
       }
     }
   }
   const p = toImage(s);
-  for (let i = state.shapes.ropes.length - 1; i >= 0; i--) {
-    const rope = state.shapes.ropes[i];
-    const reach = Math.max(Math.max(...rope.widths) / 2, HIT / state.view.scale);
-    if (distanceToSegment(p, ...rope.points) <= reach) return { kind: "rope", index: i };
-  }
-  for (let i = state.shapes.water.length - 1; i >= 0; i--) {
-    if (insidePolygon(p, state.shapes.water[i])) return { kind: "polygon", index: i };
-  }
-  return null;
+  const rope = ropeAt(p);
+  if (rope >= 0) return { kind: "area", layer: "ropes", index: rope };
+  const water = state.shapes.water.findLastIndex((polygon) => insidePolygon(p, polygon));
+  return water >= 0 ? { kind: "area", layer: "water", index: water } : null;
 }
 
 function setupCanvas() {
@@ -566,21 +581,22 @@ function setupCanvas() {
     if (!state.frame) return;
     canvas.setPointerCapture(e.pointerId);
     const s = point(e);
+    state.mouse = s;
     if (state.mode !== "edit") {
-      clickInMode(s);
+      // Adding: a click is a dot (or, joining, the rope to join); a drag moves the frame
+      state.drag = { type: "pan", start: s, last: s, moved: false, click: e.button === 0 };
       return;
     }
     const hit = e.button === 0 && state.show ? hitTest(s) : null; // hidden labels can't be edited
     const before = shapesJSON(state.shapes);
-    if (hit?.kind === "corner" || hit?.kind === "end" || hit?.kind === "width") {
-      state.selection = hit.kind === "corner" ? { kind: "polygon", index: hit.index, corner: hit.corner }
-        : { kind: "rope", index: hit.index, end: hit.end };
-      state.drag = { type: hit.kind, hit, before, moved: false };
+    if (hit?.kind === "corner") {
+      state.selection = { layer: hit.layer, index: hit.index, corner: hit.corner };
+      state.drag = { type: "corner", hit, before, moved: false };
     } else if (hit?.kind === "mid") {
-      const polygon = state.shapes.water[hit.index];
+      const polygon = state.shapes[hit.layer][hit.index];
       polygon.splice(hit.edge + 1, 0, midpoint(polygon[hit.edge], polygon[(hit.edge + 1) % polygon.length]));
-      state.selection = { kind: "polygon", index: hit.index, corner: hit.edge + 1 };
-      state.drag = { type: "corner", hit: { kind: "corner", index: hit.index, corner: hit.edge + 1 }, before, moved: true };
+      state.selection = { layer: hit.layer, index: hit.index, corner: hit.edge + 1 };
+      state.drag = { type: "corner", hit: { ...state.selection, kind: "corner" }, before, moved: true };
     } else {
       // A click selects the rope or water area under it; a drag moves the view
       state.drag = { type: "pan", start: s, last: s, hit, moved: false };
@@ -594,29 +610,22 @@ function setupCanvas() {
     state.mouse = s;
     const d = state.drag;
     if (!d) {
-      if (state.mode !== "edit") draw();
-      else canvas.style.cursor = hoverCursor(state.show ? hitTest(s) : null);
+      if (state.mode === "edit") canvas.style.cursor = hoverCursor(state.show ? hitTest(s) : null);
       showClassTip(s);
       return;
     }
     hideClassTip();
     if (d.type === "pan") {
-      if (dist(s, d.start) > 3) d.moved = true;
+      if (dist(s, d.start) > 3 && !d.moved) {
+        d.moved = true;
+        canvas.style.cursor = "grabbing";
+      }
       state.view.x += s[0] - d.last[0];
       state.view.y += s[1] - d.last[1];
       d.last = s;
     } else {
       d.moved = true;
-      const p = clampToImage(toImage(s));
-      if (d.type === "corner") state.shapes.water[d.hit.index][d.hit.corner] = p;
-      if (d.type === "end") state.shapes.ropes[d.hit.index].points[d.hit.end] = p;
-      if (d.type === "width") {
-        const rope = state.shapes.ropes[d.hit.index];
-        const [a, b] = rope.points;
-        const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-        const across = Math.abs(((p[0] - rope.points[d.hit.end][0]) * -(b[1] - a[1]) + (p[1] - rope.points[d.hit.end][1]) * (b[0] - a[0])) / len);
-        rope.widths[d.hit.end] = Math.max(1, 2 * across - 12 / state.view.scale); // the handle sits 6 px outside the band
-      }
+      state.shapes[d.hit.layer][d.hit.index][d.hit.corner] = clampToImage(toImage(s));
       updatePanel();
     }
     draw();
@@ -625,11 +634,13 @@ function setupCanvas() {
     const d = state.drag;
     state.drag = null;
     if (!d) return;
-    canvas.style.cursor = "grab";
+    canvas.style.cursor = state.mode === "edit" ? "grab" : "crosshair";
+    if (d.type === "pan" && state.mode !== "edit") {
+      if (!d.moved && d.click) clickInMode(d.start);
+      return;
+    }
     if (d.type === "pan") {
-      if (!d.moved) {
-        state.selection = d.hit && (d.hit.kind === "rope" || d.hit.kind === "polygon") ? { kind: d.hit.kind, index: d.hit.index } : null;
-      }
+      if (!d.moved) state.selection = d.hit?.kind === "area" ? { layer: d.hit.layer, index: d.hit.index } : null;
     } else if (d.moved) {
       // The whole drag is one step of undo
       state.undo.push(d.before);
@@ -640,7 +651,7 @@ function setupCanvas() {
   };
   canvas.addEventListener("pointerup", end);
   canvas.addEventListener("pointercancel", end);
-  canvas.addEventListener("dblclick", () => finishWater());
+  canvas.addEventListener("dblclick", finishDraft);
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
     zoomAt(point(e), Math.exp(-e.deltaY * 0.0015));
@@ -649,7 +660,6 @@ function setupCanvas() {
   canvas.addEventListener("pointerleave", () => {
     state.mouse = null;
     hideClassTip();
-    draw();
   });
   new ResizeObserver(() => draw()).observe(canvas);
 }
@@ -657,27 +667,17 @@ function setupCanvas() {
 // ---------------------------------------------------------------------------------------------------------------
 // Class tooltip: the class under the pointer, as the training mask will have it (rope over water over other)
 
-const CLASS_NAMES = { rope: "Lane rope", water: "Water", other: "Other" };
-const HANDLE_HINTS = {
-  corner: "drag to move this corner",
-  end: "drag to move this end",
-  width: "drag to change the rope's width at this end",
-  mid: "drag to add a corner here",
-};
+const CLASS_NAMES = { ropes: "Lane rope", water: "Water", other: "Other" };
+const HANDLE_HINTS = { corner: "drag to move this corner", mid: "drag to add a corner here" };
 
-// The class at screen point `s`: {kind: "rope" | "water" | "other", index}, or null outside the frame. A thin rope
-// counts within a few screen pixels of its line, as for selecting it.
+// The class at screen point `s`: {layer: "ropes" | "water" | "other", index}, or null outside the frame
 function classAt(s) {
   const p = toImage(s);
   if (p[0] < 0 || p[1] < 0 || p[0] > state.frame.width || p[1] > state.frame.height) return null;
-  for (let i = state.shapes.ropes.length - 1; i >= 0; i--) {
-    const rope = state.shapes.ropes[i];
-    if (insidePolygon(p, ropeCorners(rope)) || distanceToSegment(p, ...rope.points) <= HIT / state.view.scale) {
-      return { kind: "rope", index: i };
-    }
-  }
+  const rope = ropeAt(p);
+  if (rope >= 0) return { layer: "ropes", index: rope };
   const water = state.shapes.water.findIndex((polygon) => insidePolygon(p, polygon));
-  return water >= 0 ? { kind: "water", index: water } : { kind: "other" };
+  return water >= 0 ? { layer: "water", index: water } : { layer: "other" };
 }
 
 function showClassTip(s) {
@@ -687,14 +687,14 @@ function showClassTip(s) {
     hideClassTip();
     return;
   }
+  // Over a handle, the class of the area the handle belongs to
   const hit = hitTest(s);
-  // Over a handle, the class of the shape the handle belongs to
-  const kind = hit?.kind === "end" || hit?.kind === "width" ? "rope" : hit?.kind === "corner" || hit?.kind === "mid" ? "water" : found.kind;
-  const index = hit && HANDLE_HINTS[hit.kind] ? hit.index : found.index;
-  const name = kind === "rope" ? `${CLASS_NAMES.rope} ${index + 1}` : CLASS_NAMES[kind];
+  const handle = hit && HANDLE_HINTS[hit.kind] ? hit : null;
+  const { layer, index } = handle ?? found;
+  const name = layer === "ropes" ? `${CLASS_NAMES.ropes} ${index + 1}` : CLASS_NAMES[layer];
   tip.replaceChildren(el("strong", "", name));
-  if (hit && HANDLE_HINTS[hit.kind]) tip.append(el("span", "", ` · ${HANDLE_HINTS[hit.kind]}`));
-  tip.className = `class-tip ${kind}`;
+  if (handle) tip.append(el("span", "", ` · ${HANDLE_HINTS[handle.kind]}`));
+  tip.className = `class-tip ${layer === "ropes" ? "rope" : layer}`;
   tip.hidden = false;
   // Next to the pointer, kept inside the editor
   const box = canvas.getBoundingClientRect();
@@ -709,36 +709,34 @@ function hideClassTip() {
 
 function hoverCursor(hit) {
   if (!hit) return "grab";
-  if (hit.kind === "corner" || hit.kind === "end" || hit.kind === "width" || hit.kind === "mid") return "move";
-  return "pointer";
+  return hit.kind === "area" ? "pointer" : "move";
 }
 
 function clickInMode(s) {
   if (state.mode === "join") {
     const hit = hitTest(s);
     const sel = state.selection;
-    const other = hit && (hit.kind === "rope" || hit.kind === "end") ? hit.index : null;
-    if (sel?.kind === "rope" && other !== null && other !== sel.index) {
+    const other = hit?.layer === "ropes" ? hit.index : null;
+    if (sel?.layer === "ropes" && other !== null && other !== sel.index) {
       edit(() => {
-        const joined = joinRopes(state.shapes.ropes[sel.index], state.shapes.ropes[other]);
+        const joined = convexHull([...state.shapes.ropes[sel.index], ...state.shapes.ropes[other]]);
         state.shapes.ropes = state.shapes.ropes.filter((_, k) => k !== sel.index && k !== other);
         state.shapes.ropes.push(joined);
-        state.selection = { kind: "rope", index: state.shapes.ropes.length - 1 };
+        state.selection = { layer: "ropes", index: state.shapes.ropes.length - 1 };
       });
       setMode("edit");
     }
     return;
   }
-  state.draft.push(clampToImage(toImage(s)));
-  if (state.mode === "add-rope" && state.draft.length === 2) {
-    const points = state.draft;
-    const width = defaultWidth();
-    edit(() => {
-      state.shapes.ropes.push({ points, widths: [width, width] });
-      state.selection = { kind: "rope", index: state.shapes.ropes.length - 1 };
-    });
-    setMode("edit");
+  // Drawing: each click is a dot; a click on the first dot closes the area (on the last dot: nothing, e.g. a
+  // double-click's second click). Small distances, so the dots of a thin rope can be close together.
+  const within = (p, pixels) => dist(toScreen(p), s) <= pixels;
+  if (state.draft.length >= 3 && within(state.draft[0], CLOSE)) {
+    finishDraft();
+    return;
   }
+  if (state.draft.length && within(state.draft[state.draft.length - 1], SAME_DOT)) return;
+  state.draft.push(clampToImage(toImage(s)));
   draw();
 }
 

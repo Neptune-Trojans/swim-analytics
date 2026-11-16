@@ -8,7 +8,7 @@ has one box whose x position depends on the frame index, so the overlay can be r
 Also: changing a setting in the settings panel re-runs filtering and tracking and shows the new results.
 
 The Videos page test processes the test video with a stand-in for the detection model (conftest.py). The Labels
-page test drags a rope end, saves, and adds a rope.
+page test drags a rope corner, saves, and adds a rope and water by clicking dots.
 
 Skipped without Chrome (or set CHROME_PATH). Leave it out with: pytest -m "not browser"
 """
@@ -29,7 +29,7 @@ import pytest
 
 from swim.app.server import create_app
 from swim.labeling.dataset import Dataset, Frame
-from swim.labeling.labels import FrameLabels, Rope
+from swim.labeling.labels import FrameLabels
 from swim.pipeline.config import PipelineConfig
 from swim.stages.detection.types import BBox, Detection, FrameDetections, VideoDetections
 from swim.utils.video import video_writer
@@ -109,7 +109,7 @@ def write_test_labels(dataset: Dataset) -> None:
         cv2.imwrite(str(dataset.image_path(f.name)), np.full((HEIGHT, WIDTH, 3), 180, np.uint8))
     dataset.save_sam3(FrameLabels(video=frames[0].video, frame_idx=10, image=frames[0].image, width=WIDTH, height=HEIGHT,
                                   water=[[(20, 100), (620, 100), (620, 340), (20, 340)]],
-                                  ropes=[Rope([(40, 200), (600, 180)], [8, 4])], source="test"))
+                                  ropes=[[(40, 196), (600, 178), (600, 182), (40, 204)]], source="test"))
 
 
 def free_port() -> int:
@@ -426,48 +426,77 @@ def test_labels_page_drag_save_and_add_a_rope(viewer, server):
         viewer.chrome.cdp("Input.dispatchMouseEvent", type=kind, x=point[0], y=point[1], button="left",
                           buttons=1 if kind != "mouseReleased" else 0, clickCount=1)
 
+    def click(point):
+        mouse("mousePressed", point)
+        mouse("mouseReleased", point)
+
     def hover(point):  # move the mouse without a button; the tooltip's text, or None if hidden
         viewer.chrome.cdp("Input.dispatchMouseEvent", type="mouseMoved", x=point[0], y=point[1], buttons=0)
         return js("(() => { const t = document.getElementById('class-tip'); return t.hidden ? null : t.textContent; })()")
 
     # Class tooltip: the class under the mouse, as in the training mask (rope over water over other)
     assert hover(screen(300, 300)) == "Water"
-    assert hover(screen(320, 190)) == "Lane rope 1"  # on the rope's line
+    assert hover(screen(320, 190)) == "Lane rope 1"  # inside the rope's outline
     assert hover(screen(10, 50)) == "Other"  # outside the pool
-    assert hover(screen(40, 200)) == "Lane rope 1 · drag to move this end"
+    assert hover(screen(40, 196)) == "Lane rope 1 · drag to move this corner"
     viewer.key("h", 72)  # labels hidden: no tooltip
     assert hover(screen(300, 300)) is None
     viewer.key("h", 72)
 
-    # Drag the rope's left end 40 px down (in frame pixels)
-    start, target = screen(40, 200), screen(40, 240)
+    # Drag the rope's first corner 40 px down (in frame pixels)
+    start, target = screen(40, 196), screen(40, 236)
     mouse("mousePressed", start)
     for k in range(1, 6):
         mouse("mouseMoved", [start[0] + (target[0] - start[0]) * k / 5, start[1] + (target[1] - start[1]) * k / 5])
     mouse("mouseReleased", target)
-    x, y = js("__labels.shapes().ropes[0].points[0]")
-    assert abs(x - 40) < 1.5 and abs(y - 240) < 1.5
+    x, y = js("__labels.shapes().ropes[0][0]")
+    assert abs(x - 40) < 1.5 and abs(y - 236) < 1.5
     assert js("!document.getElementById('unsaved').hidden")
 
     viewer.key("s", 83)
     assert viewer.wait_for("document.getElementById('message').textContent", lambda t: t.startswith("Saved")) == "Saved as fixed."
     saved = dataset.labels(LABEL_A)
-    assert saved.status == "fixed" and abs(saved.ropes[0].points[0][1] - 240) < 1.5
-    assert dataset.sam3(LABEL_A).ropes[0].points[0] == (40, 200)  # the model's labels stay
+    assert saved.status == "fixed" and abs(saved.ropes[0][0][1] - 236) < 1.5
+    assert dataset.sam3(LABEL_A).ropes[0][0] == (40, 196)  # the model's labels stay
 
-    # Next frame (no labels yet): add a rope with R and two clicks, then Save & next (A)
-    viewer.key("ArrowRight", 39)
-    assert viewer.wait_for("window.__labels.frame()", lambda name: name == LABEL_B) == LABEL_B
+    # + Rope: click dots around it; each dot connects to the last; a click on the first dot closes it
     viewer.key("r", 82)
-    for point in (screen(50, 150), screen(590, 160)):
-        mouse("mousePressed", point)
-        mouse("mouseReleased", point)
+    assert js("document.getElementById('mode-hint').textContent").startswith("Rope: click dots around it")
+    dots = [(100, 290), (500, 280), (500, 300), (100, 310)]
+    click(screen(*dots[0]))
+    click(screen(*dots[0]))  # the same dot twice (e.g. a double-click's first click): one dot
+    click(screen(300, 330))
+    viewer.key("Backspace", 8)  # removes the last dot
+    origin = screen(0, 0)  # a drag moves the frame, and adds no dot
+    start = screen(300, 200)
+    mouse("mousePressed", start)
+    for k in range(1, 6):
+        mouse("mouseMoved", [start[0] + 12 * k, start[1] + 6 * k])
+    mouse("mouseReleased", [start[0] + 60, start[1] + 30])
+    assert np.allclose(screen(0, 0), [origin[0] + 60, origin[1] + 30], atol=0.5)
+    for dot in dots[1:]:
+        click(screen(*dot))
+    assert len(js("__labels.shapes().ropes")) == 1  # not added before it is closed
+    click(screen(*dots[0]))
+    ropes = js("__labels.shapes().ropes")
+    assert len(ropes) == 2 and js("document.getElementById('mode-hint').hidden")
+    assert np.allclose(ropes[1], dots, atol=1.5)
+    assert hover(screen(300, 295)) == "Lane rope 2"
+
+    # Next frame (no labels yet): a rope with dots beyond the frame's edge (they land on it), Enter to finish
+    viewer.key("ArrowRight", 39)  # saves frame A's changes first
+    assert viewer.wait_for("window.__labels.frame()", lambda name: name == LABEL_B) == LABEL_B
+    assert len(dataset.labels(LABEL_A).ropes) == 2
+    viewer.key("r", 82)
+    for dot in ((50, 150), (643, 155), (643, 165), (50, 160)):
+        click(screen(*dot))
+    viewer.key("Enter", 13)
     assert js("__labels.shapes().ropes.length") == 1
     viewer.key("a", 65)
     viewer.wait_for("document.getElementById('message').textContent", lambda t: t.startswith("Saved"))
     [rope] = dataset.labels(LABEL_B).ropes
-    assert abs(rope.points[0][0] - 50) < 1.5 and abs(rope.points[1][0] - 590) < 1.5
-    assert rope.widths == [8.0, 8.0]  # no other ropes in the frame to take the width from: 8 px
+    assert np.allclose(rope, [(50, 150), (640, 155), (640, 165), (50, 160)], atol=1.5)
+    assert rope[1][0] == rope[2][0] == 640
 
     # + Water on frame B (no water yet): W, click 4 corners, Enter
     viewer.chrome.cdp("Page.navigate", url=f"{base_url}/labels?frame={LABEL_B}")

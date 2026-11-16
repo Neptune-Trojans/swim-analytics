@@ -54,11 +54,11 @@
       <section>
         <h2>Shapes</h2>
         <div class="tool-buttons">
-          <button id="add-rope" class="btn-secondary" type="button" title="Add a lane rope: click its two ends (R)">+ Rope</button>
-          <button id="add-water" class="btn-secondary" type="button" title="Add to the water: click around the area, Enter to finish (W)">+ Water</button>
-          <button id="cut-water" class="btn-secondary" type="button" title="Remove from the water: click around the area, Enter to finish (E)">− Water</button>
+          <button id="add-rope" class="btn-secondary" type="button" title="Add a lane rope: click dots around it, then the first dot or Enter (R)">+ Rope</button>
+          <button id="add-water" class="btn-secondary" type="button" title="Add to the water: click dots around the area, then the first dot or Enter (W)">+ Water</button>
+          <button id="cut-water" class="btn-secondary" type="button" title="Remove from the water: click dots around the area, then the first dot or Enter (E)">− Water</button>
           <button id="join" class="btn-secondary" type="button" title="Join the selected rope with another one (J)">Join ropes</button>
-          <button id="delete" class="btn-secondary" type="button" title="Delete the selected corner, rope or water area (Delete)">Delete</button>
+          <button id="delete" class="btn-secondary" type="button" title="Delete the selected corner, rope or water area (Delete); while drawing, the last dot">Delete</button>
           <button id="undo" class="btn-secondary" type="button" title="Undo (Z)">Undo</button>
           <button id="redo" class="btn-secondary" type="button" title="Redo (Shift+Z)">Redo</button>
         </div>
@@ -69,16 +69,16 @@
       <section>
         <h2>How to</h2>
         <dl class="keys">
-          <dt>drag a point</dt><dd>move a water corner or a rope end</dd>
-          <dt>drag ◆</dt><dd>a selected rope's width at that end</dd>
-          <dt>drag +</dt><dd>add a corner on a selected water area's edge</dd>
+          <dt>drag a corner</dt><dd>move it (water: squares, ropes: circles)</dd>
+          <dt>drag +</dt><dd>add a corner on the selected area's edge</dd>
           <dt>point</dt><dd>the class under the mouse (water, lane rope, other)</dd>
           <dt>click</dt><dd>select a rope or a water area</dd>
-          <dt>drag, wheel</dt><dd>move and zoom the frame</dd>
+          <dt>drag, wheel</dt><dd>move and zoom the frame (also while adding dots)</dd>
           <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>previous / next frame (saves changes)</dd>
           <dt><kbd>A</kbd> <kbd>S</kbd></dt><dd>save &amp; next / save</dd>
-          <dt><kbd>R</kbd> <kbd>J</kbd></dt><dd>add rope / join ropes</dd>
-          <dt><kbd>W</kbd> <kbd>E</kbd></dt><dd>add to / remove from the water: click around the area, Enter</dd>
+          <dt><kbd>R</kbd> <kbd>W</kbd> <kbd>E</kbd></dt><dd>add a rope / add water / remove water: click dots around the area, then the first dot (or Enter); a click beyond the frame puts the dot on its edge</dd>
+          <dt><kbd>⌫</kbd></dt><dd>while adding: remove the last dot</dd>
+          <dt><kbd>J</kbd></dt><dd>join the selected rope with another</dd>
           <dt><kbd>Z</kbd> <kbd>Esc</kbd> <kbd>F</kbd></dt><dd>undo / cancel / fit the frame</dd>
         </dl>
       </section>

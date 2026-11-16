@@ -48,7 +48,7 @@ class RerunRequest(BaseModel):
 class SaveLabelsRequest(BaseModel):
     status: str
     water: list[list[list[float]]] = []  # polygons: [[x, y], ...]
-    ropes: list[dict] = []  # {"points": [[x1, y1], [x2, y2]], "widths": [w1, w2]}
+    ropes: list[list[list[float]]] = []  # polygons: each rope's outline
 
 
 class EditWaterRequest(BaseModel):
