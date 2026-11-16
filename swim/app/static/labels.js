@@ -245,22 +245,10 @@ function redo() {
 function setMode(mode) {
   state.mode = mode;
   state.draft = [];
-  updateHint();
   hideClassTip();
   canvas.style.cursor = mode === "edit" ? "grab" : "crosshair";
   for (const m of DRAW_MODES) $(m).classList.toggle("active", state.mode === m);
   draw();
-}
-
-// What to do now, above the frame
-function updateHint() {
-  const finish = "click the first dot or press Enter to finish (drag: move the frame; Backspace: remove the last dot; Esc: cancel)";
-  const hints = {
-    "add-rope": `Rope: click dots around it; ${finish}`,
-    "add-water": `Add water: click dots around the area; ${finish}`,
-  };
-  $("mode-hint").hidden = state.mode === "edit";
-  $("mode-hint").textContent = hints[state.mode] ?? "";
 }
 
 const DRAW_MODES = ["add-rope", "add-water"];

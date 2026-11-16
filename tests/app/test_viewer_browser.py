@@ -458,7 +458,7 @@ def test_labels_page_drag_save_and_add_a_rope(viewer, server):
 
     # + Rope: click dots around it; each dot connects to the last; a click on the first dot closes it
     viewer.key("r", 82)
-    assert js("document.getElementById('mode-hint').textContent").startswith("Rope: click dots around it")
+    assert js("document.getElementById('add-rope').classList.contains('active')")  # the button shows the tool is on
     dots = [(100, 290), (500, 280), (500, 300), (100, 310)]
     click(screen(*dots[0]))
     click(screen(*dots[0]))  # the same dot twice (e.g. a double-click's first click): one dot
@@ -476,7 +476,7 @@ def test_labels_page_drag_save_and_add_a_rope(viewer, server):
     assert len(js("__labels.shapes().ropes")) == 1  # not added before it is closed
     click(screen(*dots[0]))
     ropes = js("__labels.shapes().ropes")
-    assert len(ropes) == 2 and js("document.getElementById('mode-hint').hidden")
+    assert len(ropes) == 2 and not js("document.getElementById('add-rope').classList.contains('active')")
     assert np.allclose(ropes[1], dots, atol=1.5)
     assert hover(screen(300, 295)) == "Lane rope 2"
 
@@ -508,4 +508,4 @@ def test_labels_page_drag_save_and_add_a_rope(viewer, server):
     [water] = dataset.labels(LABEL_B).water
     xs, ys = zip(*water)
     assert len(water) == 4 and abs(min(xs) - 100) < 2 and abs(max(ys) - 300) < 2
-    assert js("__labels.shapes().water.length") == 1 and js("document.getElementById('mode-hint').hidden")
+    assert js("__labels.shapes().water.length") == 1 and not js("document.getElementById('add-water').classList.contains('active')")
