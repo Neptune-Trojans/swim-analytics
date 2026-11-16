@@ -119,16 +119,13 @@ def test_a_swimmer_cut_off_by_the_frame_edge_is_filled_but_the_deck_corner_is_no
     assert len(polygon) <= 7
 
 
-def test_edit_water_merges_an_added_area_and_cuts_one_out():
-    from swim.labeling.shapes import edit_water
+def test_add_water_merges_the_added_area():
+    from swim.labeling.shapes import add_water
 
     pool = [[(0, 60), (299, 60), (299, 199), (0, 199)]]
     notch = [[(0, 60), (299, 60), (299, 199), (0, 199), (0, 130), (40, 130), (40, 100), (0, 100)]]  # a swimmer cut out
 
-    [merged] = edit_water(notch, W, H, add=[(0, 90), (60, 90), (60, 140), (0, 140)])
+    [merged] = add_water(notch, [(0, 90), (60, 90), (60, 140), (0, 140)], W, H)
     assert sorted(merged) == sorted(pool[0])  # the notch is gone: back to 4 corners
 
-    [cut] = edit_water(pool, W, H, subtract=[(200, 40), (310, 40), (310, 100), (200, 100)])  # deck wrongly marked
-    assert max(y for x, y in cut if x > 250) == 199 and min(y for x, y in cut if x > 250) >= 99
-
-    assert edit_water(pool, W, H, add=[(50, 0), (100, 0), (100, 20), (50, 20)])[1:]  # a separate area: two polygons
+    assert add_water(pool, [(50, 0), (100, 0), (100, 20), (50, 20)], W, H)[1:]  # a separate area: two polygons

@@ -110,13 +110,13 @@ Each frame is encoded once, then four prompts: "swimming pool", "lane rope", "bl
 |---|---|
 | Frame list | Every frame with its status (orange: not checked, green: checked), filter (all / not checked / fixed / accepted), how many are checked. Click to open |
 | Editor | The frame with the water (blue) and ropes (orange) drawn on top. A tooltip next to the mouse names the class under it, as the training mask will have it (Lane rope 2, Water, Other; over a corner also what dragging it does). Corners: squares for water, circles for ropes; drag one to move it. Click a rope or water area to select it; the selected area shows + handles on its edges to add a corner. Drag on the frame to move it, mouse wheel to zoom |
-| Tools | + Rope (R), + Water (W), − Water (E): click dots around the area. Each dot connects to the last, and from the third dot on the area fills in (the closing edge dashed); nothing follows the mouse. A drag moves the frame meanwhile (a click without moving is a dot). Click the first dot, double-click or press Enter to finish; Backspace (or Z) removes the last dot, Esc cancels. A click beyond the frame puts the dot on its edge. A new rope is added as drawn; water is merged into the water or cut out of it, and the outlines are simplified again on the server (the fast fix for a swimmer cut out of the pool, or deck marked as water). Join ropes (J: select a rope, click the other: one outline around both), Delete (the selected corner, rope or water area), Undo / Redo (Z / Shift+Z), Show labels (H), fill opacity |
+| Tools | + Rope (R), + Water (W): click dots around the area. Each dot connects to the last, and from the third dot on the area fills in (the closing edge dashed); nothing follows the mouse. A drag moves the frame meanwhile (a click without moving is a dot). Click the first dot, double-click or press Enter to finish; Backspace (or Z) removes the last dot, Esc cancels. A click beyond the frame puts the dot on its edge. A new rope is added as drawn; new water is merged into the water and the outlines are simplified again on the server (the fast fix for a swimmer cut out of the pool). Too much water (deck marked as water): move or delete corners. Delete (the selected corner, rope or water area), Undo / Redo (Z / Shift+Z) |
 | Save | Save (S) and Save & next (A). The status is set from the shapes: `fixed` if they differ from SAM3's, `accepted` if not. ← / → open the previous / next frame and save changes first. "Back to SAM3's labels" restores the model's shapes (undoable) |
 
 API (`swim/app/server.py`): `GET /api/labels` (frames and statuses), `GET /api/labels/<name>` (labels and SAM3's),
 `GET /api/labels/<name>/image`, `PUT /api/labels/<name>` (status, water, ropes; checked against the label format; the
-frame's video, index and size come from the dataset, not the page), `POST /api/labels/<name>/water` (+ Water /
-− Water: the water polygons with an area merged in or cut out; nothing saved).
+frame's video, index and size come from the dataset, not the page), `POST /api/labels/<name>/water` (+ Water: the
+water polygons with an area merged in; nothing saved).
 
 ## Next
 

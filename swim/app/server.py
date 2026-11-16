@@ -23,7 +23,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from swim.app.jobs import JobQueue
 from swim.labeling.dataset import Dataset
 from swim.labeling.labels import CLASSES, FrameLabels
-from swim.labeling.shapes import edit_water
+from swim.labeling.shapes import add_water
 from swim.app.library import (
     VIDEO_MEDIA_TYPES, find_results, is_video, list_folder, results_status, results_video, saved_config, saved_stages,
     thumbnail, video_info,
@@ -53,8 +53,7 @@ class SaveLabelsRequest(BaseModel):
 
 class EditWaterRequest(BaseModel):
     water: list[list[list[float]]] = []  # the frame's water polygons as they are on the page
-    add: list[list[float]] | None = None  # a polygon to merge into the water
-    subtract: list[list[float]] | None = None  # a polygon to cut out of the water
+    add: list[list[float]]  # the polygon to merge into the water
 
 
 class ProcessRequest(BaseModel):
@@ -303,14 +302,12 @@ def create_app(output_dir: str | Path = "data/output", input_dir: str | Path = "
 
     @app.post("/api/labels/{name}/water")
     def edit_frame_water(name: str, request: EditWaterRequest) -> dict:
-        """The page's + Water / - Water: the water polygons with an area merged in or cut out, simplified again
-        (nothing is saved)."""
+        """The page's + Water: the water polygons with an area merged in, simplified again (nothing is saved)."""
         frame = labeled_frame(name)
-        drawn = [p for p in (request.add, request.subtract) if p is not None]
-        if any(len(polygon) < 3 for polygon in request.water + drawn):
+        if any(len(polygon) < 3 for polygon in request.water + [request.add]):
             raise HTTPException(400, "Every polygon needs at least 3 corners")
-        water = edit_water([[tuple(pt) for pt in polygon] for polygon in request.water], frame.width, frame.height,
-                           add=request.add, subtract=request.subtract)
+        water = add_water([[tuple(pt) for pt in polygon] for polygon in request.water],
+                          [tuple(pt) for pt in request.add], frame.width, frame.height)
         return {"water": [[[round(x, 1), round(y, 1)] for x, y in polygon] for polygon in water]}
 
     # -----------------------------------------------------------------------------------------------------------

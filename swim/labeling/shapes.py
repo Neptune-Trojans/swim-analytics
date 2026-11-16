@@ -72,17 +72,12 @@ def area_polygons(area: np.ndarray, tolerance: float = WATER_TOLERANCE, min_piec
     return polygons
 
 
-def edit_water(polygons: list[list[Point]], width: int, height: int, add: list[Point] | None = None,
-               subtract: list[Point] | None = None, tolerance: float = WATER_TOLERANCE) -> list[list[Point]]:
-    """Water polygons with an area added (merged in) or cut out, outlines simplified again (the Labels page's
-    + Water / - Water). Polygons have no holes, so an area cut from the middle of the water fills back in."""
+def add_water(polygons: list[list[Point]], added: list[Point], width: int, height: int,
+              tolerance: float = WATER_TOLERANCE) -> list[list[Point]]:
+    """Water polygons with an area merged in, outlines simplified again (the Labels page's + Water)."""
     area = np.zeros((height, width), np.uint8)
-    for polygon in polygons:
+    for polygon in polygons + [added]:
         _fill(area, polygon, 1)
-    if add:
-        _fill(area, add, 1)
-    if subtract:
-        _fill(area, subtract, 0)
     # Keep pieces drawn by hand even if small (a few pixels of pool beside a sign)
     return area_polygons(area, tolerance, min_piece=0.0005)
 

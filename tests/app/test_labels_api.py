@@ -103,7 +103,7 @@ def test_empty_dataset_lists_nothing(tmp_path):
     assert "labels.js" in client.get("/labels").text
 
 
-def test_water_edit_merges_and_cuts_without_saving(setup):
+def test_water_edit_merges_without_saving(setup):
     client, dataset = setup
     notch = [[0, 20], [99, 20], [99, 59], [0, 59], [0, 45], [20, 45], [20, 35], [0, 35]]
 
@@ -111,12 +111,10 @@ def test_water_edit_merges_and_cuts_without_saving(setup):
     assert merged.status_code == 200
     assert sorted(map(tuple, merged.json()["water"][0])) == [(0, 20), (0, 59), (99, 20), (99, 59)]
 
-    cut = client.post("/api/labels/IMG_1_000010/water", json={"water": WATER, "subtract": [[60, 0], [100, 0], [100, 40], [60, 40]]})
-    assert max(y for x, y in cut.json()["water"][0] if x >= 70) == 59
     assert dataset.labels("IMG_1_000010").water == [[(0, 20), (99, 20), (99, 59), (0, 59)]]  # nothing saved
 
 
 def test_water_edit_refuses_bad_polygons(setup):
     client, _ = setup
     assert client.post("/api/labels/IMG_1_000010/water", json={"water": WATER, "add": [[0, 0], [5, 5]]}).status_code == 400
-    assert client.post("/api/labels/nope/water", json={"water": WATER}).status_code == 404
+    assert client.post("/api/labels/nope/water", json={"water": WATER, "add": WATER[0]}).status_code == 404

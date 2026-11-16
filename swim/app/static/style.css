@@ -453,8 +453,7 @@ a.video-file[href]:hover { color: var(--accent); }
 .tool-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
 .tool-buttons .btn-secondary { padding: 5px 8px; font-size: 13px; text-align: center; }
 .tool-buttons .btn-secondary.active { border-color: var(--accent); color: var(--accent); }
-.opacity { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
-.opacity input { flex: 1; accent-color: var(--accent); }
+.tool-buttons #delete { grid-column: 1 / -1; }
 .shape-counts { margin: 8px 0 0; font-size: 12px; }
 .label-panel .keys { font-size: 12px; }
 .commands { padding: 12px; border-radius: 8px; background: var(--surface); font: 13px ui-monospace, "SF Mono", Menlo, monospace; }

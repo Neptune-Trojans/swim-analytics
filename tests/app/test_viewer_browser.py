@@ -439,9 +439,6 @@ def test_labels_page_drag_save_and_add_a_rope(viewer, server):
     assert hover(screen(320, 190)) == "Lane rope 1"  # inside the rope's outline
     assert hover(screen(10, 50)) == "Other"  # outside the pool
     assert hover(screen(40, 196)) == "Lane rope 1 · drag to move this corner"
-    viewer.key("h", 72)  # labels hidden: no tooltip
-    assert hover(screen(300, 300)) is None
-    viewer.key("h", 72)
 
     # Drag the rope's first corner 40 px down (in frame pixels)
     start, target = screen(40, 196), screen(40, 236)
