@@ -38,11 +38,13 @@ swim/
     jobs.py           #   background processing (one video at a time) through run_pipeline()
     static/           #   the pages: videos.js (Videos), viewer.js (Play), labels.js (Labels), layers.js (drawing layers)
   labeling/           # training data for the pool model: python -m swim.labeling (docs/labeling.md)
+  pool_model/         # the pool segmentation network (U-Net): python -m swim.pool_model train (docs/pool-model.md)
 tests/                # unit tests, same folder structure as swim/
 data/
   input/              # source swim videos
   output/             # results, one folder per video
   labels/pool/        # labeling dataset: frames, SAM3's labels, checked labels, training masks (git-ignored)
+  models/pool/        # trained pool models, one folder per training run (git-ignored)
 docs/                 # design documents
 notebooks/            # experiments (detection_stats.ipynb: statistics of detected boxes)
 research/             # research notes (one .md per topic; local only, git-ignored)
@@ -56,7 +58,7 @@ Run all commands from the repo root.
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e ".[app,dev,notebooks]"   # dependencies from pyproject.toml (app: web app, dev: tests)
+.venv/bin/pip install -e ".[app,dev,notebooks,train]"   # dependencies from pyproject.toml (app: web app, dev: tests, train: TensorBoard)
 ```
 
 ### 1. Process a video
@@ -111,6 +113,16 @@ SAM3-LiteText labels the pool's water and lane ropes on frames picked from the v
 .venv/bin/python -m swim.labeling auto                     # SAM3-LiteText labels them (about 2 s per frame; downloads 2 GB once)
 .venv/bin/python -m swim.app                               # check and fix: http://127.0.0.1:8000/labels
 .venv/bin/python -m swim.labeling masks                    # training masks from the checked frames
+```
+
+### 4. Train the pool model
+
+A U-Net learns the pool's water (water / other) from the checked frames; about 5 minutes on a MacBook (M4 Pro). See
+[docs/pool-model.md](docs/pool-model.md).
+
+```bash
+.venv/bin/python -m swim.pool_model train   # a run folder in data/models/pool/: model.pt, summary.json, val/ pictures
+.venv/bin/tensorboard --logdir data/models/pool   # watch the progress: http://localhost:6006
 ```
 
 ## Tests

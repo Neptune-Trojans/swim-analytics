@@ -13,14 +13,16 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
 ## Environment
 
 - Python venv in `.venv/`: run everything with `.venv/bin/python`
-- Dependencies are in `pyproject.toml`: `.venv/bin/pip install -e ".[app,dev,notebooks]"`
+- Dependencies are in `pyproject.toml`: `.venv/bin/pip install -e ".[app,dev,notebooks,train]"`
 
 ## Conventions
 
 - Pipeline design and build progress: `docs/pipeline.md`. Keep its "Build order" checkboxes up to date.
 - All processing goes through `run_pipeline()` in `swim/pipeline/runner.py`, run with `python -m swim.run`.
-  No separate scripts with their own processing loops. Exception: training data for models is made with
-  `python -m swim.labeling` (`swim/labeling/`, design in `docs/labeling.md`), not part of the pipeline
+  No separate scripts with their own processing loops. Exceptions, not part of the pipeline: training data for
+  models is made with `python -m swim.labeling` (`swim/labeling/`, design in `docs/labeling.md`), and the pool
+  segmentation network is trained with `python -m swim.pool_model train` (`swim/pool_model/`, design in
+  `docs/pool-model.md`; runs go to `data/models/pool/`, git-ignored)
 - `swim/pipeline/` is the runner (order, save/load, settings); `swim/stages/` holds the steps
 - One folder per stage under `swim/stages/` (`detection/`, `filtering/`, `tracking/`, later `swimmer/`, `pose/`, `metrics/`),
   each with: `types.py` (output data classes + model contract, no model-specific code; only if the stage has its
@@ -50,6 +52,7 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
 - `tests/app/test_viewer_browser.py` drives headless Chrome (skipped without it, ~3 s); leave it out with
   `-m "not browser"`. Run it after changing `swim/app/static/`
 - Tests that run detection use the stand-in model in `tests/app/conftest.py` (`fake_model`), not RF-DETR
+- Tests that train the pool model use tiny frames, the CPU and `pretrained=False` (no weight download)
 - Short clip: `data/input/IMG_4886.MOV` (93 frames, one swimmer); several persons: `IMG_4884.MOV`
 - Write test outputs to a temp folder (`--output <tmp>`), not `data/output/` (the user's own results) or
   `data/labels/` (the user's labeling dataset: checked labels are hand work)

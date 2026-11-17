@@ -10,6 +10,7 @@ __pycache__/
 data/input/*
 data/output/*
 data/labels/
+data/models/
 !data/input/.gitkeep
 !data/output/.gitkeep
 *.mp4

@@ -120,6 +120,7 @@ water polygons with an area merged in; nothing saved).
 
 ## Next
 
-- Train the model on `masks/` (architecture and size to decide; it must run fast on a Mac on every frame).
+- Train the model: `docs/pool-model.md` (water first; training reads the checked labels directly, with the same
+  `rasterize()` as `masks`).
 - Use it in a `pool` stage of the pipeline: water per frame (drop boxes outside the pool), ropes as lines per frame
   (lane of each box, for joining broken tracks).
