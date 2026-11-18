@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import cv2
@@ -59,7 +60,7 @@ def test_results_made_with_the_wanted_settings_are_up_to_date(processed):
 
     status = results_status(video, output, DEFAULTS)
 
-    assert status == {"name": "IMG_1", "stages": ["detection", "filtering", "tracking"], "made_from": None,
+    assert status == {"name": "IMG_1", "stages": ["detection", "pool", "filtering", "tracking"], "made_from": None,
                       "settings_saved": True, "differences": [], "start": None}
 
 
@@ -79,9 +80,23 @@ def test_other_settings_start_from_the_first_stage_they_change(processed, change
     assert {"stage": stage, "name": name, "saved": getattr(getattr(DEFAULTS, stage), name), "wanted": value} in status["differences"]
 
 
+def test_results_made_before_a_setting_existed_start_from_its_stage(processed):
+    # config.json written before filtering.pool_margin existed: the default isn't what the results were made with
+    video, output = processed
+    path = output / "IMG_1" / "config.json"
+    saved = json.loads(path.read_text())
+    del saved["filtering"]["pool_margin"]
+    path.write_text(json.dumps(saved))
+
+    status = results_status(video, output, DEFAULTS)
+
+    assert status["differences"] == [{"stage": "filtering", "name": "pool_margin", "saved": None, "wanted": 0.01}]
+    assert status["start"] == "filtering"
+
+
 def test_a_missing_stage_starts_there(processed):
     video, output = processed
-    (output / "IMG_1" / "3_tracks.json").unlink()
+    (output / "IMG_1" / "4_tracks.json").unlink()
 
     assert results_status(video, output, DEFAULTS)["start"] == "tracking"
 

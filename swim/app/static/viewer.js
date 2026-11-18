@@ -3,7 +3,7 @@
 
 import { $, el, requestJSON, showError } from "./dom.js";
 import { LAYERS, trackStyle } from "./layers.js";
-import { changedSettings, fixedSetting, markSettings, settingInputs, settingRow, usable } from "./settings.js";
+import { changedSettings, fixedSetting, isEdited, markSettings, settingInputs, settingRow, usable } from "./settings.js";
 
 const video = $("video");
 const overlay = $("overlay");
@@ -13,7 +13,7 @@ const state = {
   name: null,
   details: null, // GET /api/videos/<name>: saved stages, settings used, video size / fps / frame count
   layers: {}, // layer name -> {data: saved stage output, frames: frame_idx -> frame}
-  available: [], // layers with saved results, pipeline order
+  available: [], // layers with saved results, in LAYERS order
   rerunning: false, // a re-run with changed settings is in progress
   enabled: new Set(), // layers switched on
   fps: 30,
@@ -55,9 +55,7 @@ async function openVideo(name, startFrame) {
   state.width = first.width;
   state.height = first.height;
   state.frameCount = state.details.video?.frame_count || first.frames.length;
-  // Default: only the last stage's layer, as on the command line (earlier layers show the same boxes before later
-  // stages changed them)
-  state.enabled = new Set([available.at(-1)]);
+  state.enabled = defaultLayers(available);
 
   $("player").style.setProperty("--ar", state.width / state.height);
   $("viewer").hidden = false;
@@ -68,6 +66,13 @@ async function openVideo(name, startFrame) {
   setupControls();
   setupTimeline();
   setupSettings();
+}
+
+// As on the command line: the pool's water and the boxes of the last stage that has them (earlier box layers show the
+// same boxes before later stages changed them)
+function defaultLayers(available) {
+  const boxes = available.filter((layer) => LAYERS[layer].boxes !== false).slice(-1);
+  return new Set([...available.filter((layer) => layer === "pool"), ...boxes]);
 }
 
 // Load the saved output of every stage that has a drawing layer. Returns those layers, in pipeline order.
@@ -193,10 +198,13 @@ function updateUrl() {
 // ---------------------------------------------------------------------------------------------------------------
 // Drawing
 
-// The last switched-on layer in pipeline order: its boxes are listed in the side panel and colored in the timeline
+// The last switched-on layer with boxes, in pipeline order: its boxes are listed in the side panel and colored in the
+// timeline
 function primaryLayer() {
-  return Object.keys(LAYERS).filter((layer) => state.enabled.has(layer)).at(-1) ?? null;
+  return boxLayers().filter((layer) => state.enabled.has(layer)).at(-1) ?? null;
 }
+
+const boxLayers = () => Object.keys(LAYERS).filter((layer) => LAYERS[layer].boxes !== false);
 
 function frameData(layer, n) {
   // Frames missing from the results are drawn as "nothing found"
@@ -237,7 +245,7 @@ let timelineBars = null;
 
 function drawTimeline() {
   const ctx = fitCanvas(timeline);
-  const layer = primaryLayer() ?? Object.keys(state.layers).at(-1);
+  const layer = primaryLayer() ?? boxLayers().filter((name) => state.layers[name]).at(-1);
   if (!timelineBars || timelineBars.width !== timeline.width || timelineBars.height !== timeline.height ||
       timelineBars.layer !== layer) {
     timelineBars = drawTimelineBars(layer, timeline.width, timeline.height);
@@ -462,7 +470,7 @@ function buildSettings() {
 function updateSettingsState() {
   const { changed, valid } = markSettings($("settings"));
   $("apply-settings").disabled = !changed || !valid || state.rerunning;
-  $("reset-settings").hidden = !changed || state.rerunning;
+  $("reset-settings").hidden = !settingInputs($("settings")).some(isEdited) || state.rerunning; // nothing to undo
 
   // A min_score below the detection threshold removes nothing: boxes below the threshold were never saved
   const minScore = settingInputs($("settings")).find((i) => i.dataset.stage === "filtering" && i.dataset.name === "min_score");
@@ -497,7 +505,7 @@ async function applySettings(event) {
     state.details = body;
     const available = await loadLayers();
     // A stage that had no results before (e.g. filtering never run): show its layer, as when opening the video
-    if (available.join() !== before) state.enabled = new Set([available.at(-1)]);
+    if (available.join() !== before) state.enabled = defaultLayers(available);
     timelineBars = null;
     lastShown = null;
     buildLayerToggles();

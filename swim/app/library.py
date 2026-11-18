@@ -57,6 +57,18 @@ def saved_config(folder: Path) -> PipelineConfig:
     return PipelineConfig.from_json(path) if path.exists() else PipelineConfig()
 
 
+def new_settings(folder: Path) -> set[tuple[str, str]]:
+    """The (stage, setting) pairs missing from the folder's config.json: the results were made before the setting
+    existed, so without it, although saved_config() fills in its default. Empty without config.json."""
+    path = folder / "config.json"
+    if not path.exists():
+        return set()
+    recorded = json.loads(path.read_text())
+    defaults = PipelineConfig()
+    return {(stage.name, f.name) for stage in fields(defaults) for f in fields(getattr(defaults, stage.name))
+            if not isinstance(recorded.get(stage.name), dict) or f.name not in recorded[stage.name]}
+
+
 def same_file(a: Path, b: Path) -> bool:
     try:
         return os.path.samefile(a, b)
@@ -79,7 +91,8 @@ def results_status(video: Path, output_dir: Path, wanted: PipelineConfig) -> dic
     - stages: the stages with saved results
     - made_from: when the results in `<output>/<video name>/` were made from another video file (same name), its path
     - settings_saved: false for results without config.json (settings unknown)
-    - differences: settings of saved stages that differ from `wanted`
+    - differences: settings of saved stages that differ from `wanted`; "saved" is None for a setting missing from
+      config.json (the results were made before it existed, so without it)
     - start: the first stage to run to bring the results up to date (missing, other settings, or everything for
       another video's results); None = up to date
     """
@@ -96,12 +109,14 @@ def results_status(video: Path, output_dir: Path, wanted: PipelineConfig) -> dic
     status["settings_saved"] = (folder / "config.json").exists()
     if not status["settings_saved"]:
         return status
-    saved = saved_config(folder)
+    saved, unrecorded = saved_config(folder), new_settings(folder)
     for stage in stages:
         if not hasattr(wanted, stage):
             continue
         for f in fields(getattr(wanted, stage)):
             old, new = getattr(getattr(saved, stage), f.name), getattr(getattr(wanted, stage), f.name)
+            if (stage, f.name) in unrecorded:
+                old = None
             if old != new:
                 status["differences"].append({"stage": stage, "name": f.name, "saved": old, "wanted": new})
     changed = {d["stage"] for d in status["differences"]}

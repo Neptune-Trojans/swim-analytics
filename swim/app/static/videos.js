@@ -6,6 +6,8 @@ import { $, el, hideError, requestJSON, showError } from "./dom.js";
 import { changedSettings, markSettings, setSettingValue, settingRow } from "./settings.js";
 
 const STORAGE = { folder: "swim.videos.folder", settings: "swim.videos.settings" };
+// Stages that go through the video's frames: their progress is shown in frames
+const FRAME_STAGES = ["detection", "pool"];
 
 const state = {
   listing: null, // GET /api/library: folder, parent, subfolders, videos with their results state, stages
@@ -241,7 +243,9 @@ function describeResults(v) {
   if (r.start === null) return { kind: "ok", text: "Up to date" };
   const reasons = [];
   if (!r.settings_saved) reasons.push("settings not recorded (no config.json)");
-  for (const d of r.differences) reasons.push(`${d.stage}.${d.name} ${d.saved} → ${d.wanted}`);
+  for (const d of r.differences) {
+    reasons.push(d.saved === null ? `${d.stage}.${d.name} is new (${d.wanted})` : `${d.stage}.${d.name} ${d.saved} → ${d.wanted}`);
+  }
   for (const stage of state.listing.stages) if (!r.stages.includes(stage)) reasons.push(`${stage} not run`);
   return { kind: "warn", text: "Needs update", detail: reasons.join(" · ") };
 }
@@ -302,10 +306,10 @@ function renderJob(box, job) {
   } else if (job.state === "running") {
     const bar = el("progress");
     bar.max = Math.max(job.total, 1);
-    bar.value = job.stage === "detection" ? Math.min(job.done, job.total) : bar.max;
+    bar.value = FRAME_STAGES.includes(job.stage) ? Math.min(job.done, job.total) : bar.max;
     const text = job.cancel_requested ? "Cancelling…"
-      : job.stage === "detection" && job.done > 0
-        ? `detection · ${job.done} / ${job.total} frames${job.seconds_left !== null ? ` · ${duration(job.seconds_left)} left` : ""}`
+      : FRAME_STAGES.includes(job.stage) && job.done > 0
+        ? `${job.stage} · ${job.done} / ${job.total} frames${job.seconds_left !== null ? ` · ${duration(job.seconds_left)} left` : ""}`
         : `${job.stage ?? "starting"}…`;
     box.classList.add("running");
     box.replaceChildren(bar, el("span", "", text), job.cancel_requested ? "" : cancel);
@@ -432,7 +436,7 @@ function showJobsSummary() {
   const waiting = state.jobs.filter((j) => j.state === "queued").length;
   const parts = [];
   if (running) {
-    const pct = running.stage === "detection" && running.total ? ` ${Math.floor((100 * running.done) / running.total)}%` : "";
+    const pct = FRAME_STAGES.includes(running.stage) && running.total ? ` ${Math.floor((100 * running.done) / running.total)}%` : "";
     parts.push(`Processing ${running.name}: ${running.stage ?? "starting"}${pct}`);
   }
   if (waiting) parts.push(`${waiting} waiting`);

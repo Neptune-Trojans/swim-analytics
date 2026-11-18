@@ -21,6 +21,7 @@ import subprocess
 import threading
 import time
 import urllib.request
+from dataclasses import asdict
 from pathlib import Path
 
 import cv2
@@ -32,6 +33,7 @@ from swim.labeling.dataset import Dataset, Frame
 from swim.labeling.labels import FrameLabels
 from swim.pipeline.config import PipelineConfig
 from swim.stages.detection.types import BBox, Detection, FrameDetections, VideoDetections
+from swim.stages.pool.types import FramePool, VideoPool
 from swim.utils.video import video_writer
 
 websocket = pytest.importorskip("websocket", reason="needs websocket-client")
@@ -45,6 +47,7 @@ BOX_X0, BOX_STEP, BOX_Y1, BOX_Y2 = 20, 6, 200, 330  # frame i's box starts at x 
 VIDEO_NAME = "test_video"
 LABEL_A, LABEL_B = "test_000010", "test_000020"  # frames on the Labels page
 SETTINGS_VIDEO = "test_video_settings"  # a separate results folder: its test re-runs filtering
+OLD_SETTINGS_VIDEO = "test_video_old_settings"  # results filtered before filtering.pool_margin existed
 
 # Read back, in the page: the frame index shown in the video, the frame whose box the overlay draws, the frame label
 PAGE_HELPERS = f"""
@@ -98,6 +101,8 @@ def write_test_results(folder: Path, video: Path) -> None:
         for i in range(FRAMES)
     ]
     VideoDetections(str(video), FPS, WIDTH, HEIGHT, "test", frames).to_json(folder / "1_detections.json")
+    water = [[(0, HEIGHT // 2), (WIDTH - 1, HEIGHT // 2), (WIDTH - 1, HEIGHT - 1), (0, HEIGHT - 1)]]  # the lower half
+    VideoPool(str(video), FPS, WIDTH, HEIGHT, "test", [FramePool(i, i / FPS, water) for i in range(FRAMES)]).to_json(folder / "2_pool.json")
 
 
 def write_test_labels(dataset: Dataset) -> None:
@@ -138,6 +143,10 @@ def server(tmp_path_factory):
     write_test_results(root / "output" / SETTINGS_VIDEO, root / "input" / "test.mp4")
     settings = PipelineConfig().with_changes({"detection": {"threshold": 0.5}})
     settings.to_json(root / "output" / SETTINGS_VIDEO / "config.json")
+    write_test_results(root / "output" / OLD_SETTINGS_VIDEO, root / "input" / "test.mp4")
+    old_settings = asdict(PipelineConfig())
+    del old_settings["filtering"]["pool_margin"]
+    (root / "output" / OLD_SETTINGS_VIDEO / "config.json").write_text(json.dumps(old_settings))
 
     write_test_labels(Dataset(root / "labels"))
 
@@ -314,6 +323,23 @@ def test_stepping_with_keys(viewer):
         assert viewer.shown() == (expected, expected, expected), f"after {'Shift+' if shift else ''}{key}"
 
 
+def test_pool_layer_is_on_and_tints_the_water(viewer):
+    viewer.open(0)
+    on = "[...document.querySelectorAll('#layers label')].filter(l => l.querySelector('input').checked)"
+    assert viewer.chrome.js(f"{on}.map(l => l.querySelector('strong').textContent)") == ["pool", "detections"]
+
+    def pixel(x, y):  # RGBA of the overlay at a point of the frame
+        return viewer.chrome.js(f"""(() => {{
+          const c = document.getElementById('overlay');
+          const s = c.width / {WIDTH};
+          return [...c.getContext('2d').getImageData(Math.round({x} * s), Math.round({y} * s), 1, 1).data];
+        }})()""")
+
+    r, g, b, a = pixel(600, 300)  # in the water (the lower half), away from the box
+    assert 0 < a < 255 and b > r  # see-through blue
+    assert pixel(600, 100)[3] == 0  # above the water: nothing drawn
+
+
 def test_timeline_click_jumps_to_that_frame(viewer):
     viewer.open(0)
 
@@ -373,6 +399,25 @@ def test_changing_a_setting_reruns_and_shows_the_new_results(viewer):
     assert js("document.getElementById('setting-tracking-tracker').value") == "sort"
 
 
+def test_a_setting_the_results_were_made_without_can_be_applied_as_it_is(viewer):
+    js = viewer.chrome.js
+    viewer.open(5, video=OLD_SETTINGS_VIDEO)
+    row = "document.getElementById('setting-filtering-pool_margin').closest('.setting')"
+
+    assert js(f"{row}.classList.contains('changed')")
+    assert "New setting" in js(f"{row}.querySelector('.setting-help').textContent")
+    assert not js("document.getElementById('apply-settings').disabled")  # nothing edited, but there is something to run
+    assert js("document.getElementById('reset-settings').hidden")  # nothing edited to undo
+
+    js("document.getElementById('apply-settings').click()")
+    status = viewer.wait_for("document.getElementById('settings-status').textContent",
+                             lambda text: text.startswith(("Done", "Re-run failed")))
+
+    assert status.startswith("Done"), status
+    assert not js(f"{row}.classList.contains('changed')")  # recorded in config.json now
+    assert js("document.getElementById('apply-settings').disabled")
+
+
 def test_videos_page_processes_a_video_and_opens_it(viewer, server, fake_model):
     js = viewer.chrome.js
     base_url, root = server
@@ -386,7 +431,7 @@ def test_videos_page_processes_a_video_and_opens_it(viewer, server, fake_model):
 
     assert job.startswith("Processed in"), job
     assert js(f"{row}.querySelector('.status').textContent") == "Up to date"
-    assert js(f"[...{row}.querySelectorAll('.chip.saved')].map(c => c.textContent)") == ["detection", "filtering", "tracking"]
+    assert js(f"[...{row}.querySelectorAll('.chip.saved')].map(c => c.textContent)") == ["detection", "pool", "filtering", "tracking"]
     js(f"{row}.querySelector('a.btn-secondary').click()")  # Open
     viewer.wait_label(0)
     assert js("location.pathname + location.search").startswith("/play?video=test")

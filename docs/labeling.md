@@ -122,5 +122,5 @@ water polygons with an area merged in; nothing saved).
 
 - Train the model: `docs/pool-model.md` (water first; training reads the checked labels directly, with the same
   `rasterize()` as `masks`).
-- Use it in a `pool` stage of the pipeline: water per frame (drop boxes outside the pool), ropes as lines per frame
-  (lane of each box, for joining broken tracks).
+- Used by the pipeline's `pool` stage (water per frame, since 2026-11-17). Next: drop boxes outside the pool; ropes
+  as lines per frame (lane of each box, for joining broken tracks).

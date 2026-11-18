@@ -1,9 +1,11 @@
 // Settings form rows, shared by the Play page (change the fast stages' settings and re-run them) and the Videos page
 // (settings for processing). Each setting is described as {name, value, type, help, min, max, step, choices}
-// (describe() in swim/pipeline/config.py).
+// (describe() in swim/pipeline/config.py), on the Play page also `new`: the saved results were made before the
+// setting existed (missing from config.json).
 //
 // An editable row's input carries data-stage, data-name, data-type and data-saved: the value it is compared with to
-// mark the row "changed" (the saved setting on the Play page, the default on the Videos page).
+// mark the row "changed" (the saved setting on the Play page, the default on the Videos page). A new setting's row is
+// always "changed" (data-new), so Apply re-runs its stage with it.
 
 import { el } from "./dom.js";
 
@@ -29,7 +31,7 @@ function numberSetting(stage, f, onChange, saved) {
     input.step = f.step ?? "any";
     input.value = f.value;
   }
-  Object.assign(number.dataset, { stage, name: f.name, saved, type: f.type });
+  Object.assign(number.dataset, { stage, name: f.name, saved, type: f.type, new: Boolean(f.new) });
   range.addEventListener("input", () => {
     number.value = range.value;
     onChange();
@@ -44,7 +46,7 @@ function numberSetting(stage, f, onChange, saved) {
   const controls = el("div", "setting-controls");
   controls.append(range, number);
   const row = el("div", "setting");
-  row.append(label, controls, el("p", "setting-help", f.help));
+  row.append(label, controls, el("p", "setting-help", helpText(f)));
   return row;
 }
 
@@ -53,7 +55,7 @@ function choiceSetting(stage, f, onChange, saved) {
   const select = el("select");
   select.id = id;
   select.replaceChildren(...f.choices.map((choice) => new Option(choice, choice, false, choice === f.value)));
-  Object.assign(select.dataset, { stage, name: f.name, saved, type: f.type });
+  Object.assign(select.dataset, { stage, name: f.name, saved, type: f.type, new: Boolean(f.new) });
   select.addEventListener("change", onChange);
 
   const head = el("div", "setting-head");
@@ -61,9 +63,11 @@ function choiceSetting(stage, f, onChange, saved) {
   label.htmlFor = id;
   head.append(label, select);
   const row = el("div", "setting");
-  row.append(head, el("p", "setting-help", f.help));
+  row.append(head, el("p", "setting-help", helpText(f)));
   return row;
 }
+
+const helpText = (f) => (f.new ? `${f.help} New setting: these results were made without it.` : f.help);
 
 export function fixedSetting(f) {
   const head = el("div", "setting-head");
@@ -78,8 +82,10 @@ export const settingInputs = (root) => [...root.querySelectorAll("[data-name]")]
 
 const parseSetting = (type, text) => (type === "str" ? text : Number(text));
 export const settingValue = (input) => parseSetting(input.dataset.type, input.value);
-export const isChanged = (input) =>
+// Edited: the value differs from the saved one. Changed: edited, or a new setting (its stage re-runs with it).
+export const isEdited = (input) =>
   input.value !== "" && settingValue(input) !== parseSetting(input.dataset.type, input.dataset.saved);
+export const isChanged = (input) => isEdited(input) || (input.value !== "" && input.dataset.new === "true");
 
 // A value is usable if present and in range; any decimal is fine (not only multiples of the slider step), except for
 // whole-number settings

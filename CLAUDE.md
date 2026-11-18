@@ -24,7 +24,7 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
   segmentation network is trained with `python -m swim.pool_model train` (`swim/pool_model/`, design in
   `docs/pool-model.md`; runs go to `data/models/pool/`, git-ignored)
 - `swim/pipeline/` is the runner (order, save/load, settings); `swim/stages/` holds the steps
-- One folder per stage under `swim/stages/` (`detection/`, `filtering/`, `tracking/`, later `swimmer/`, `pose/`, `metrics/`),
+- One folder per stage under `swim/stages/` (`detection/`, `pool/`, `filtering/`, `tracking/`, later `swimmer/`, `pose/`, `metrics/`),
   each with: `types.py` (output data classes + model contract, no model-specific code; only if the stage has its
   own output format), `stage.py` (the function the runner calls), and one file per model or rule
 - Filtering outputs the same `VideoDetections` as detection: `detections` = kept, `rejected` = removed + reason.
@@ -51,7 +51,8 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
 - Unit tests: `.venv/bin/python -m pytest`; files in `tests/`, same folder structure as `swim/`
 - `tests/app/test_viewer_browser.py` drives headless Chrome (skipped without it, ~3 s); leave it out with
   `-m "not browser"`. Run it after changing `swim/app/static/`
-- Tests that run detection use the stand-in model in `tests/app/conftest.py` (`fake_model`), not RF-DETR
+- Tests that run detection use the stand-in model in `tests/app/conftest.py` (`fake_model`), not RF-DETR. The pool
+  stage always uses a stand-in in tests (`tests/conftest.py`, autouse): no test loads a trained pool model
 - Tests that train the pool model use tiny frames, the CPU and `pretrained=False` (no weight download)
 - Short clip: `data/input/IMG_4886.MOV` (93 frames, one swimmer); several persons: `IMG_4884.MOV`
 - Write test outputs to a temp folder (`--output <tmp>`), not `data/output/` (the user's own results) or

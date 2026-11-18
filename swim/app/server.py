@@ -25,16 +25,17 @@ from swim.labeling.dataset import Dataset
 from swim.labeling.labels import CLASSES, FrameLabels
 from swim.labeling.shapes import add_water
 from swim.app.library import (
-    VIDEO_MEDIA_TYPES, find_results, is_video, list_folder, results_status, results_video, saved_config, saved_stages,
-    thumbnail, video_info,
+    VIDEO_MEDIA_TYPES, find_results, is_video, list_folder, new_settings, results_status, results_video, saved_config,
+    saved_stages, thumbnail, video_info,
 )
 from swim.pipeline.config import PipelineConfig, describe
 from swim.pipeline.runner import STAGE_OUTPUTS, STAGES, run_pipeline
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-# The Play page can change the settings of the stages from RERUN_FROM on and re-run them from the saved detections:
-# they need neither the model nor the video frames, so they take seconds. Detection takes minutes: Videos page.
+# The Play page can change the settings of the stages from RERUN_FROM on and re-run them from the saved detections
+# and pool: they need neither a model nor the video frames, so they take seconds. Detection and pool go through every
+# frame (minutes): Videos page.
 RERUN_FROM = "filtering"
 EDITABLE_STAGES = STAGES[STAGES.index(RERUN_FROM):]
 
@@ -181,19 +182,21 @@ def create_app(output_dir: str | Path = "data/output", input_dir: str | Path = "
 
     @app.get("/api/videos/{name}")
     def video_details(name: str) -> dict:
-        """Saved stages, every stage's settings (values from config.json, with explanations and allowed ranges),
-        which of them the page can change, and the video's size, fps and frame count."""
+        """Saved stages, every stage's settings (values from config.json, with explanations and allowed ranges; "new"
+        for a setting missing from config.json: the results were made without it), which of them the page can change,
+        and the video's size, fps and frame count."""
         folder = results_folder(name)
         path = results_video(folder)
         try:
             info = video_info(path)
         except OSError:
             info = None  # video moved, deleted, or unreadable
-        config = saved_config(folder)
+        config, unrecorded = saved_config(folder), new_settings(folder)
         return {
             "name": name,
             "stages": saved_stages(folder),
-            "settings": {stage: describe(getattr(config, stage)) for stage in STAGES},
+            "settings": {stage: [setting | {"new": (stage, setting["name"]) in unrecorded}
+                                 for setting in describe(getattr(config, stage))] for stage in STAGES},
             "settings_saved": (folder / "config.json").exists(),
             "editable_stages": EDITABLE_STAGES,
             "video_path": str(path),

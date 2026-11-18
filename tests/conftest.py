@@ -1,4 +1,4 @@
-"""Shared by all tests."""
+"""Shared by all tests: a small test video, and a stand-in for the pool model."""
 
 import numpy as np
 import pytest
@@ -17,3 +17,20 @@ def make_video():
         return path
 
     return make
+
+
+class FakeSegmenter:
+    """Stands in for the pool model: the lower half of every frame is water."""
+
+    name = "fake-pool"
+
+    def water(self, frame):
+        height, width = frame.shape[:2]
+        return [[(0, height // 2), (width - 1, height // 2), (width - 1, height - 1), (0, height - 1)]]
+
+
+@pytest.fixture(autouse=True)
+def fake_pool_model(monkeypatch):
+    """Every test: the pool stage uses FakeSegmenter, never the real model (it needs torch and a trained model in
+    data/models/pool/)."""
+    monkeypatch.setattr("swim.stages.pool.stage.create_segmenter", lambda config: FakeSegmenter())

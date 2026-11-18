@@ -1,18 +1,19 @@
 # Pipeline Design
 
-_Agreed: 2026-10-07. Status: steps 1–3 implemented (see "Build order")._
+_Agreed: 2026-10-07; pool stage added as stage 2 on 2026-11-17. Status: detection, pool, filtering, tracking
+implemented (see "Build order")._
 
 Goal: one clear pipeline, used everywhere (command line, notebooks, future apps), where every step is visible:
-detection, filtering, tracking, choosing the swimmer, pose (skeleton), metrics.
+detection, the pool's water, filtering, tracking, choosing the swimmer, pose (skeleton), metrics.
 
 ## Stages
 
 ```
-video ──► 1 Detection ──► 2 Filtering ──► 3 Tracking ──► 4 Swimmer ──► 5 Pose ──► 6 Metrics
-            (pixels)       (rules)        (ids)         (pick+fill)   (pixels)
-              │               │              │              │            │           │
-              ▼               ▼              ▼              ▼            ▼           ▼
-       1_detections.json 2_filtered.json 3_tracks.json 4_swimmer.json 5_poses.json 6_metrics.json
+video ──► 1 Detection ──► 2 Pool ──► 3 Filtering ──► 4 Tracking ──► 5 Swimmer ──► 6 Pose ──► 7 Metrics
+            (pixels)      (pixels)     (rules)         (ids)        (pick+fill)   (pixels)
+              │              │            │               │              │            │           │
+              ▼              ▼            ▼               ▼              ▼            ▼           ▼
+     1_detections.json  2_pool.json 3_filtered.json 4_tracks.json 5_swimmer.json 6_poses.json 7_metrics.json
 
 Visualization: draws any of these outputs as a layer on the video (it is not a step in the chain)
 ```
@@ -23,13 +24,19 @@ Videos can also be processed, and their outputs watched, in the browser (the app
 | # | Stage | Input | Output | Needs video frames? |
 |---|---|---|---|---|
 | 1 | **Detection** | video | `VideoDetections`: all persons per frame | yes |
-| 2 | **Filtering** | detections | Same format; removed detections are kept with the **reason** they were removed | no |
-| 3 | **Tracking** | detections | Same format, with `track_id` filled in; boxes the tracker didn't use in `rejected` as "untracked" | no |
-| 4 | **Swimmer** | tracks | One track: our swimmer, with short gaps filled | no |
-| 5 | **Pose** | video + swimmer boxes | Joint positions (keypoints) per frame | yes |
-| 6 | **Metrics** | poses + swimmer track + fps | Joint angles, velocity, speed, stroke rate | no |
+| 2 | **Pool** | video | `VideoPool`: the pool's water per frame, as polygons (the pool model, `docs/pool-model.md`) | yes |
+| 3 | **Filtering** | detections | Same format; removed detections are kept with the **reason** they were removed | no |
+| 4 | **Tracking** | detections | Same format, with `track_id` filled in; boxes the tracker didn't use in `rejected` as "untracked" | no |
+| 5 | **Swimmer** | tracks | One track: our swimmer, with short gaps filled | no |
+| 6 | **Pose** | video + swimmer boxes | Joint positions (keypoints) per frame | yes |
+| 7 | **Metrics** | poses + swimmer track + fps | Joint angles, velocity, speed, stroke rate | no |
 
-Stage names (used on the command line): `detection`, `filtering`, `tracking`, `swimmer`, `pose`, `metrics`.
+Stage names (used on the command line): `detection`, `pool`, `filtering`, `tracking`, `swimmer`, `pose`, `metrics`.
+
+The pool sits between detection and filtering (2026-11-17): filtering will use it to drop boxes outside the water,
+and in that place, changing filtering or tracking settings (the Play page's Apply) doesn't re-run it. Nothing uses
+its output yet. Before 2026-11-17, filtering and tracking were stages 2 and 3 (`2_filtered.json`, `3_tracks.json`):
+such results show "Needs update", and the old files are removed when a stage is saved.
 
 ## Design rules
 
@@ -62,11 +69,12 @@ swim/
     config.py        #   settings for every stage (model, thresholds, ...)
   stages/            # the steps, one folder each, in pipeline order
     detection/       #   1  types.py, stage.py, rfdetr_detector.py
-    filtering/       #   2  stage.py, filter rules (min_score.py, duplicates.py)
-    tracking/        #   3  stage.py, roboflow_trackers.py (ByteTrack, OC-SORT, SORT)
-    swimmer/         #   4  stage.py: pick the swimmer's track, join its pieces, fill gaps
-    pose/            #   5  types.py (keypoints), stage.py, pose models
-    metrics/         #   6  types.py, stage.py
+    pool/            #   2  types.py, stage.py, unet_model.py (the network itself: swim/pool_model/)
+    filtering/       #   3  stage.py, filter rules (min_score.py, outside_pool.py, duplicates.py)
+    tracking/        #   4  stage.py, roboflow_trackers.py (ByteTrack, OC-SORT, SORT)
+    swimmer/         #   5  stage.py: pick the swimmer's track, join its pieces, fill gaps
+    pose/            #   6  types.py (keypoints), stage.py, pose models
+    metrics/         #   7  types.py, stage.py
   visualization/     # one drawing layer per stage output + video rendering
   utils/             # shared helpers, not specific to any stage
     video.py         #   read frames, write video, video info
@@ -77,11 +85,12 @@ The pipeline function:
 ```python
 def run_pipeline(video_path, config):
     detections = detect(video_path, config.detection)              # 1
-    detections = filter_detections(detections, config.filtering)   # 2
-    tracks = track(detections, config.tracking)                    # 3
-    swimmer = select_swimmer(tracks, config.swimmer)               # 4
-    poses = estimate_poses(video_path, swimmer, config.pose)       # 5
-    metrics = compute_metrics(poses, swimmer)                      # 6
+    pool = segment_pool(video_path, config.pool)                   # 2
+    detections = filter_detections(detections, pool, config.filtering)   # 3
+    tracks = track(detections, config.tracking)                    # 4
+    swimmer = select_swimmer(tracks, config.swimmer)               # 5
+    poses = estimate_poses(video_path, swimmer, config.pose)       # 6
+    metrics = compute_metrics(poses, swimmer)                      # 7
 ```
 
 ## Output layout
@@ -90,12 +99,13 @@ def run_pipeline(video_path, config):
 data/output/IMG_4884/
   config.json                   # exact settings used, so results can be reproduced
   1_detections.json
-  2_filtered.json
-  3_tracks.json
-  4_swimmer.json
-  5_poses.json
-  6_metrics.json
-  video.mp4                     # rendered with the chosen layers
+  2_pool.json                   # compact JSON: a polygon per frame
+  3_filtered.json
+  4_tracks.json
+  5_swimmer.json
+  6_poses.json
+  7_metrics.json
+  video.mp4                     # rendered with the chosen layers (default: pool + the last stage's boxes)
 ```
 
 ## Command line
@@ -104,7 +114,8 @@ data/output/IMG_4884/
 python -m swim.run --input data/input/IMG_4884.MOV                      # all stages + video
 python -m swim.run --input data/input/IMG_4884.MOV --to detection       # stop after a stage
 python -m swim.run --input data/input/IMG_4884.MOV --from tracking      # re-use saved results before tracking
-python -m swim.run --input data/input/IMG_4884.MOV --render-only --layers detections,tracks
+python -m swim.run --input data/input/IMG_4884.MOV --from pool --pool-model 20261116-224516   # another pool model
+python -m swim.run --input data/input/IMG_4884.MOV --render-only --layers pool,detections,tracks
 ```
 
 ## Build order
@@ -118,9 +129,14 @@ Each step leaves a pipeline that works end to end.
 - [x] 3. Tracking: ByteTrack (Roboflow `trackers` library, also OC-SORT and SORT) behind `track()`; IDs 1, 2, ... in
   order of first appearance; boxes not used in `rejected` as "untracked"; `tracks` layer (Python + viewer); settings
   in the viewer's panel. Unit tests in `tests/stages/tracking/`, runner tests in `tests/pipeline/`.
-- [ ] 4. Choosing the swimmer
-- [ ] 5. Pose
-- [ ] 6. Metrics
+- [x] Pool (added 2026-11-17 as stage 2): the water per frame from the pool model trained on our frames
+  (`docs/pool-model.md`), saved as polygons; `pool` layer (Python + viewer), drawn under the boxes and shown by
+  default. Unit tests in `tests/stages/pool/`; tests use a stand-in model (`tests/conftest.py`).
+- [x] Filtering uses the pool (2026-11-18): `outside_pool` filter, between `min_score` and `duplicate`. Unit tests in
+  `tests/stages/filtering/test_outside_pool.py`.
+- [ ] 5. Choosing the swimmer
+- [ ] 6. Pose
+- [ ] 7. Metrics
 
 ## Decisions
 
@@ -132,7 +148,21 @@ Each step leaves a pipeline that works end to end.
   the threshold is only a score cut. Tracking (ByteTrack) uses low-score boxes to continue tracks of a half-submerged
   swimmer, so they must reach it; duplicates are removed by the filtering stage's NMS (`max_iou`). `min_score` stays
   as a setting (viewer settings panel) for trackers without a low-score pass.
-- Stage 4 (swimmer) gets its own folder `swim/stages/swimmer/` (2026-11-02, was planned inside `tracking/`): the
+- People outside the pool: filter **`outside_pool`** (2026-11-18). A box is removed when its bottom-center (where the
+  person floats or stands) is more than `pool_margin` × the frame height outside the pool stage's water; a frame
+  without water keeps all its boxes. Measured on IMG_5198 (1080p, 19,827 boxes kept by the other filters):
+  - IoU of the box with the pool: useless, about 0 for every box (median 0, max 0.29): the pool is far larger.
+  - Share of the box in the water: removes real swimmers. At the far wall the head and shoulders stand above the
+    water line, so most of the box is outside (seen: swimmers only 7-21% in the water).
+  - Bottom-center: swimmers at the far wall are within 10 px of the water; the first person standing on the deck
+    starts at 13 px. Default **0.01** (11 px at 1080p) keeps them all and removes the person on the deck; 0.02 would
+    keep that person (and give them a track). Distances are a share of the height so the setting works at any
+    resolution. Result: kept boxes 19,827 -> 8,495 (734 removed boxes scored 0.5 or more), tracks 60 -> 33.
+  - Runs before `duplicate`, so a higher-scoring box on the deck in front of a swimmer can't remove the swimmer's box.
+  - Limits: swimmers in water the pool model misses are removed (IMG_5198's beige-floored shallow area); a swimmer
+    on the starting block or walking out is removed (feet on the deck); the swimmer stage could keep a track's
+    frames out of the water later.
+- Stage 5 (swimmer; stage 4 before the pool stage) gets its own folder `swim/stages/swimmer/` (2026-11-02, was planned inside `tracking/`): the
   runner expects one settings field per stage.
 - Tracker: **ByteTrack** from Roboflow's `trackers` library (Apache-2.0), not our own implementation (2026-11-02).
   Defaults: `start_score` 0.5 (library: 0.7, too high for an underwater swimmer), `high_score` 0.5, `lost_seconds` 1,

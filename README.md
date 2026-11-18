@@ -19,15 +19,20 @@ swim/
       types.py        #     output data classes (BBox, Detection, ...) + Detector contract
       stage.py        #     detect(): the function the runner calls
       rfdetr_detector.py
-    filtering/        #   stage 2: remove problematic detections (kept as "rejected" with the reason)
+    pool/             #   stage 2: the pool's water in every frame (the pool model), as polygons
+      stage.py        #     segment_pool(): runs the model frame by frame
+      unet_model.py   #     the trained U-Net (swim/pool_model/) -> water outline
+    filtering/        #   stage 3: remove problematic detections (kept as "rejected" with the reason)
       stage.py        #     filter_detections(): runs the filters in order
       min_score.py    #     low confidence
+      outside_pool.py #     people outside the pool (the box's bottom-center not in the water)
       duplicates.py   #     boxes overlapping too much (keeps the higher score)
-    tracking/         #   stage 3: the same person keeps the same track_id from frame to frame
+    tracking/         #   stage 4: the same person keeps the same track_id from frame to frame
       stage.py        #     track(): runs the tracker frame by frame, numbers tracks 1, 2, ...
       roboflow_trackers.py  # ByteTrack, OC-SORT, SORT from the `trackers` library
   visualization/      # one drawing layer per stage output
     detections.py     #   draw detection boxes (rejected ones in gray with the reason)
+    pool.py           #   draw the pool's water (blue tint and outline)
     tracks.py         #   draw tracks: one color per track with its number
     render.py         #   draw the chosen layers on the video
   utils/              # shared helpers, not specific to any stage (one file per topic)
@@ -63,14 +68,15 @@ python3 -m venv .venv
 
 ### 1. Process a video
 
-Runs the pipeline stages (detection, filtering, tracking, ...) on a video and saves the results:
+Runs the pipeline stages (detection, pool, filtering, tracking, ...) on a video and saves the results:
 
 ```bash
 .venv/bin/python -m swim.run --input data/input/IMG_4887.MOV
 ```
 
 Results go to `data/output/<video name>/`: `config.json` (settings used), one JSON per stage (`1_detections.json`,
-`2_filtered.json`, `3_tracks.json`, ...) and `video.mp4` (the video with the last stage's boxes drawn on it).
+`2_pool.json`, `3_filtered.json`, `4_tracks.json`, ...) and `video.mp4` (the video with the pool's water and the last
+stage's boxes drawn on it). The pool stage needs a trained pool model (step 4 below).
 
 More options:
 
@@ -78,7 +84,7 @@ More options:
 .venv/bin/python -m swim.run --input data/input/IMG_4887.MOV --to detection                            # stop after a stage
 .venv/bin/python -m swim.run --input data/input/IMG_4887.MOV --from filtering --filter-min-score 0.6   # re-run from a stage, re-using saved results before it
 .venv/bin/python -m swim.run --input data/input/IMG_4887.MOV --from tracking --tracker ocsort         # try another tracker
-.venv/bin/python -m swim.run --input data/input/IMG_4887.MOV --render-only --layers filtered,tracks  # only re-draw video.mp4
+.venv/bin/python -m swim.run --input data/input/IMG_4887.MOV --render-only --layers pool,tracks      # only re-draw video.mp4
 .venv/bin/python -m swim.run --help                                                                     # all options
 ```
 
@@ -97,8 +103,8 @@ Then open <http://127.0.0.1:8000> in **Chrome or Safari** (iPhone videos are HEV
   **Settings for processing** changes the settings used. Results go to `data/output/<video name>/`, as on the
   command line.
 - **Play page** (**Open**): the video with the results drawn on top, frame by frame. In its **Settings** panel you
-  can change the filtering and tracking settings (e.g. `min_score`, the tracker) and press **Apply**: they re-run
-  from the saved detections in under a second, and the results are saved and shown on the video.
+  can change the filtering and tracking settings (e.g. `min_score`, `pool_margin`, the tracker) and press **Apply**:
+  they re-run from the saved detections and pool in under a second, and the results are saved and shown on the video.
 
 Stop the app with `Ctrl+C` (this also stops a video being processed). Options: `--input <folder>` (folder opened
 first), `--output <folder>` (another results folder), `--port 8080`. See [docs/app.md](docs/app.md).

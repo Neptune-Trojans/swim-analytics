@@ -29,6 +29,13 @@ class DetectionConfig:
 
 
 @dataclass
+class PoolConfig:
+    model: str = setting(
+        "latest", "Pool model: the name of a training run in data/models/pool/ (python -m swim.pool_model train), "
+                  "or latest for the newest.")
+
+
+@dataclass
 class FilteringConfig:
     min_score: float = setting(
         0.1, "Removes boxes scoring below this; they stay visible in gray as \"min_score\". Keep it low so tracking "
@@ -36,6 +43,10 @@ class FilteringConfig:
     max_iou: float = setting(
         0.5, "Of two boxes overlapping more than this (IoU), removes the lower-scoring one as a \"duplicate\". "
              "1 = off.", 0, 1, 0.05)
+    pool_margin: float = setting(
+        0.01, "Removes boxes of people outside the pool as \"outside_pool\": the box's bottom-center (where the person "
+              "floats or stands) must be in the water, or at most this share of the frame height outside it "
+              "(0.01 = 11 px in a 1080p video). 1 = off.", 0, 1, 0.005)
 
 
 @dataclass
@@ -63,6 +74,7 @@ class TrackingConfig:
 @dataclass
 class PipelineConfig:
     detection: DetectionConfig = field(default_factory=DetectionConfig)
+    pool: PoolConfig = field(default_factory=PoolConfig)
     filtering: FilteringConfig = field(default_factory=FilteringConfig)
     tracking: TrackingConfig = field(default_factory=TrackingConfig)
 

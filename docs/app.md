@@ -47,11 +47,11 @@ Browser (swim/app/static/)                  Local server (python -m swim.app, sw
 |---|---|
 | **Folder** | A path field, a parent-folder button and the subfolders as buttons. Opens `--input` (default `data/input`) the first time, then the last folder (remembered in the browser; also in the URL: `/?folder=...`, so Back returns to the previous folder). A web page can't tell the server where a folder is (the browser's folder picker gives files, not their location), so the server lists the folders |
 | **Rows** | One per video (`.mov`, `.mp4`, `.m4v`): thumbnail (first frame), name, length, frames, size, fps, file size, date; the **state** of its results; one chip per stage: saved ✓, saved with other settings ≠, not run –; what is out of date (e.g. `detection.threshold 0.5 → 0.1 · tracking not run`) |
-| **State** | *Not processed*, *Up to date* (every stage saved, with the settings for processing), *Needs update* (a stage missing, other settings, or no `config.json`), *Results of another video* (`data/output/<name>/` was made from another file with the same name, e.g. an iPhone `IMG_4887` from another folder), *Can't read this video* |
+| **State** | *Not processed*, *Up to date* (every stage saved, with the settings for processing), *Needs update* (a stage missing, other settings, a setting newer than the results (`filtering.pool_margin is new (0.01)`: missing from their `config.json`, so the results were made without it), or no `config.json`), *Results of another video* (`data/output/<name>/` was made from another file with the same name, e.g. an iPhone `IMG_4887` from another folder), *Can't read this video* |
 | **Actions** | **Process** (no results), **Update** (runs from the first stage that needs it: other tracking settings re-run only tracking, in a second), **Re-process** (up to date: runs everything again). **Open** goes to the Play page. Replacing another video's results asks first |
 | **Selection** | Tick videos, **Process selected**; **Process all that need it** queues every video not up to date |
 | **Settings for processing** | Every stage's settings, from the defaults in `swim/pipeline/config.py`, with the same form as the Play page. Changes are remembered in the browser; the videos' state is checked against these settings (changing the threshold to 0.5 makes results made at 0.5 *Up to date*) |
-| **Progress** | One video at a time; the others wait in line. The row shows the stage, frames done and time left (detection: about 20 frames per second, ~1 min for `IMG_4887`, ~9 min for the 10,000-frame `IMG_4890`), with **Cancel**. The top bar shows what is running, wherever you are. Jobs run on the server: closing the page doesn't stop them; stopping the server does |
+| **Progress** | One video at a time; the others wait in line. The row shows the stage, frames done and time left for the stages that go through the frames (detection: about 20 frames per second, ~1 min for `IMG_4887`, ~9 min for the 10,000-frame `IMG_4890`; pool: about 25 frames per second), with **Cancel**. The top bar shows what is running, wherever you are. Jobs run on the server: closing the page doesn't stop them; stopping the server does |
 
 ### Processing in the background (`swim/app/jobs.py`)
 
@@ -77,11 +77,11 @@ Browser (swim/app/static/)                  Local server (python -m swim.app, sw
 |---|---|
 | **Top bar** | The video's name and **← Videos** (back to the Videos page). The URL holds the video and, when paused, the frame (`/play?video=IMG_4887&frame=432`), so a link or a reload opens the same frame. Old links (`/?video=...`) still work |
 | **Player** | Original video with a canvas overlay, scaled with the video when the window is resized |
-| **Layers** | A checkbox per available layer: `detections`, `filtered`, `tracks` (each track in its own color with its number; later `swimmer`, `pose`, `metrics`). Default: the last stage's layer, as on the command line. Same look as the Python render: kept boxes in red with the score, rejected ones in gray with the reason |
+| **Layers** | A checkbox per available layer: `pool` (the water tinted blue with its outline, drawn under the boxes), `detections`, `filtered`, `tracks` (each track in its own color with its number; later `swimmer`, `pose`, `metrics`). Default: `pool` and the last stage's boxes, as on the command line. Same look as the Python render: kept boxes in red with the score, rejected ones in gray with the reason. The side panel and the timeline follow the last switched-on box layer |
 | **Controls** | Play / pause (Space), one frame back / forward (← / →), 10 frames (Shift + ← / →), speed 0.25× / 0.5× / 1× / 2×, frame number and time |
 | **Timeline** | One thin bar per frame under the video, colored by the number of persons kept (0 = gap, highlighted), with a mark where boxes were rejected. Click or drag to jump; shows where the playhead is |
 | **Side panel** | The current frame's detections (score, box size) and rejected ones (reason, score). Hovering a row highlights its box |
-| **Settings** | Every stage's settings (from `config.json`) with a short explanation each (`setting(help=...)` in `swim/pipeline/config.py`). The fast stages' settings (filtering, tracking) can be changed: **Apply** re-runs them from the saved detections and the video shows the new results right away. Detection's settings are read-only here: re-running it takes minutes (Videos page). A hint warns when `min_score` is below the detection threshold (changes nothing: those boxes were never saved) |
+| **Settings** | Every stage's settings (from `config.json`) with a short explanation each (`setting(help=...)` in `swim/pipeline/config.py`). The fast stages' settings (filtering, tracking) can be changed: **Apply** re-runs them from the saved detections and pool and the video shows the new results right away. Detection's and pool's settings are read-only here: re-running them takes minutes (Videos page). A setting newer than the results (missing from `config.json`) is marked changed with "New setting: these results were made without it", so **Apply** can run it as it is. A hint warns when `min_score` is below the detection threshold (changes nothing: those boxes were never saved) |
 | **Checks** | A warning if the results' width × height or frame count don't match the video (wrong results folder) |
 
 ### Frame-accurate overlay
@@ -96,9 +96,10 @@ target frame (`(frame_idx + 0.5) / fps`) so rounding never lands on the frame be
 
 `POST /api/videos/<name>/rerun` with e.g. `{"settings": {"filtering": {"min_score": 0.3}}}`:
 
-- Only stages from `filtering` on (`EDITABLE_STAGES` in `server.py`): they need neither the model nor the video
-  frames, so a re-run takes well under a second (0.01 s for filtering on `IMG_4886`). A future stage that needs the
-  model (pose) must not be re-run this way: it belongs in the Videos page's background jobs.
+- Only stages from `filtering` on (`EDITABLE_STAGES` in `server.py`): they need neither a model nor the video
+  frames, so a re-run takes well under a second (0.01 s for filtering on `IMG_4886`). They start from the saved
+  detections and pool (results made before the pool stage existed need an Update on the Videos page first). A future
+  stage that needs a model (pose) must not be re-run this way: it belongs in the Videos page's background jobs.
 - Values are checked against each setting's type and range (`PipelineConfig.with_changes()`); a bad value changes
   nothing (HTTP 400). One re-run at a time (409 while one runs, or while the video is being processed).
 - Like `python -m swim.run --from filtering`: the new results and `config.json` are **saved**, replacing the

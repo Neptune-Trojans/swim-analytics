@@ -8,7 +8,8 @@ from swim.stages.detection.types import BBox, Detection
 
 
 class FakeModel:
-    """Stands in for the detection model: one box per frame, moving 2 px per frame.
+    """Stands in for the detection model: one box per frame, moving 2 px per frame, near the bottom of the frame (in
+    the water of the pool model's stand-in, tests/conftest.py, so filtering keeps it).
 
     `pause_at = n` makes detection wait at frame n until `go` is set; `paused` is set when it gets there.
     """
@@ -33,7 +34,8 @@ class FakeDetector:
         if self.frames == self.model.pause_at:
             self.model.paused.set()
             self.model.go.wait(timeout=10)
-        box = Detection(BBox(2 * self.frames, 10, 2 * self.frames + 20, 30), 0.8)
+        bottom = frame.shape[0] - 10
+        box = Detection(BBox(2 * self.frames, bottom - 20, 2 * self.frames + 20, bottom), 0.8)
         self.frames += 1
         return [box]
 

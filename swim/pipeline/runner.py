@@ -1,7 +1,7 @@
 """The pipeline runner: runs the stages (swim/stages/) in order and saves each stage's output.
 
-Planned stages: detection -> filtering -> tracking -> swimmer -> pose -> metrics (see docs/pipeline.md).
-Implemented so far: detection, filtering, tracking.
+Planned stages: detection -> pool -> filtering -> tracking -> swimmer -> pose -> metrics (see docs/pipeline.md).
+Implemented so far: detection, pool, filtering, tracking.
 """
 
 from collections.abc import Callable
@@ -12,21 +12,28 @@ from swim.pipeline.config import PipelineConfig
 from swim.stages.detection.stage import detect
 from swim.stages.detection.types import VideoDetections
 from swim.stages.filtering.stage import filter_detections
+from swim.stages.pool.stage import segment_pool
+from swim.stages.pool.types import VideoPool
 from swim.stages.tracking.stage import track
 from swim.utils.video import get_video_info
 
 # Implemented stages, in order
-STAGES = ["detection", "filtering", "tracking"]
+STAGES = ["detection", "pool", "filtering", "tracking"]
 
 # Saved output of each stage: file name in the video's output folder, and its data class
 STAGE_OUTPUTS = {
     "detection": ("1_detections.json", VideoDetections),
-    "filtering": ("2_filtered.json", VideoDetections),
-    "tracking": ("3_tracks.json", VideoDetections),
+    "pool": ("2_pool.json", VideoPool),
+    "filtering": ("3_filtered.json", VideoDetections),
+    "tracking": ("4_tracks.json", VideoDetections),
 }
 
+# Files of results made before the pool stage existed (until 2026-11-17, filtering and tracking were stages 2 and 3):
+# outdated, removed when a stage's new output is saved
+OLD_OUTPUTS = ("2_filtered.json", "3_tracks.json")
+
 # progress(stage, frames done, frames in the video): called when a stage starts (0) and ends (all frames), and after
-# every frame in the slow stages (detection). It may raise to stop the run: the stage being run is not saved.
+# every frame in the stages that go through the video's frames (detection, pool). It may raise to stop the run: the stage being run is not saved.
 Progress = Callable[[str, int, int], None]
 
 
@@ -35,6 +42,7 @@ class PipelineResult:
     """Output of every stage. None = that stage was not run (and not loaded)."""
 
     detections: VideoDetections | None = None
+    pool: VideoPool | None = None
     filtered: VideoDetections | None = None
     tracks: VideoDetections | None = None
 
@@ -97,6 +105,10 @@ def run_pipeline(
                 later_path.unlink()
                 if STAGES.index(later) > stop_idx:
                     print(f"[{later}] removed outdated {later_path}")
+        for old in OLD_OUTPUTS:
+            if (output_dir / old).exists():
+                (output_dir / old).unlink()
+                print(f"removed {output_dir / old} (made before the pool stage existed)")
         if hasattr(config, name):
             recorded = replace(recorded, **{name: getattr(config, name)})
         recorded.to_json(config_path)
@@ -105,15 +117,17 @@ def run_pipeline(
         # with --from give later stages exactly the same input
         return data_cls.from_json(path)
 
-    def on_frame(done: int, total: int) -> None:
-        report("detection", done, total)
+    def frames_of(name: str) -> Callable[[int, int], None]:
+        return lambda done, total: report(name, done, total)
 
     result = PipelineResult()
     # 1. Detection: all persons in every frame
-    result.detections = stage("detection", lambda: detect(video_path, config.detection, on_frame))
-    # 2. Filtering: remove problematic detections (kept as "rejected" with the reason)
-    result.filtered = stage("filtering", lambda: filter_detections(result.detections, config.filtering))
-    # 3. Tracking: the same person keeps the same track_id from frame to frame
+    result.detections = stage("detection", lambda: detect(video_path, config.detection, frames_of("detection")))
+    # 2. Pool: the pool's water in every frame
+    result.pool = stage("pool", lambda: segment_pool(video_path, config.pool, frames_of("pool")))
+    # 3. Filtering: remove problematic detections (kept as "rejected" with the reason), e.g. people outside the pool
+    result.filtered = stage("filtering", lambda: filter_detections(result.detections, result.pool, config.filtering))
+    # 4. Tracking: the same person keeps the same track_id from frame to frame
     result.tracks = stage("tracking", lambda: track(result.filtered, config.tracking))
     return result
 
@@ -129,5 +143,6 @@ def load_results(output_dir: str | Path) -> PipelineResult:
     if not loaded:
         raise FileNotFoundError(f"No saved results in {output_dir}: run the pipeline first")
     return PipelineResult(
-        detections=loaded.get("detection"), filtered=loaded.get("filtering"), tracks=loaded.get("tracking")
+        detections=loaded.get("detection"), pool=loaded.get("pool"), filtered=loaded.get("filtering"),
+        tracks=loaded.get("tracking"),
     )

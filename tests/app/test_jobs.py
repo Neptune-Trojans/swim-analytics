@@ -59,10 +59,11 @@ def test_processing_a_new_video_saves_every_stage(setup):
     assert (job["name"], job["state"], job["start"], job["error"]) == ("IMG_1", "done", "detection", None)
     assert (job["done"], job["total"]) == (FRAMES, FRAMES)
     folder = root / "data" / "output" / "IMG_1"
-    assert sorted(p.name for p in folder.iterdir()) == ["1_detections.json", "2_filtered.json", "3_tracks.json", "config.json"]
+    assert sorted(p.name for p in folder.iterdir()) == [
+        "1_detections.json", "2_pool.json", "3_filtered.json", "4_tracks.json", "config.json"]
     assert json.loads((folder / "1_detections.json").read_text())["video_path"] == "data/input/IMG_1.mp4"  # as swim.run
     assert statuses(client)["IMG_1.mp4"]["start"] is None  # up to date
-    assert client.get("/api/videos").json() == [{"name": "IMG_1", "stages": ["detection", "filtering", "tracking"],
+    assert client.get("/api/videos").json() == [{"name": "IMG_1", "stages": ["detection", "pool", "filtering", "tracking"],
                                                  "video_found": True}]
 
 

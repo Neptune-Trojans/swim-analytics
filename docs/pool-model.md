@@ -1,6 +1,7 @@
 # The pool model (pool segmentation network)
 
-_Agreed: 2026-11-16. Status: training built (water / other); not used in the pipeline yet._
+_Agreed: 2026-11-16. Status: training built (water / other); used by the pipeline's pool stage (stage 2, since
+2026-11-17)._
 
 A small, fast network that finds the pool's **water** in every frame. It is trained on the frames checked on the Labels
 page (`docs/labeling.md`). It replaces SAM3-LiteText (about 1.7 s per frame) with about 25 ms per frame. Lane ropes
@@ -119,5 +120,6 @@ an M4 Pro.
 ## Next
 
 - Run it on whole videos and look at where it fails. Add frames like those (pick, SAM3, check), train again.
-- A `pool` stage in the pipeline: water per frame, used to drop boxes outside the pool.
+- The pipeline's `pool` stage (`swim/stages/pool/`, `docs/pipeline.md`) runs the newest model on every frame
+  (`pool.model`: a run folder name, or `latest`). Next: filtering drops boxes outside the water.
 - Lane ropes as a third class, for the lanes (joining broken tracks).

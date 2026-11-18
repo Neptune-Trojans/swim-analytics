@@ -120,10 +120,10 @@ def test_input_is_not_changed_and_output_survives_save_and_load(tmp_path):
     before = copy.deepcopy(source)
 
     result = track(source, TrackingConfig())
-    result.to_json(tmp_path / "3_tracks.json")
+    result.to_json(tmp_path / "4_tracks.json")
 
     assert source == before
-    assert VideoDetections.from_json(tmp_path / "3_tracks.json") == result
+    assert VideoDetections.from_json(tmp_path / "4_tracks.json") == result
 
 
 def test_unknown_tracker():

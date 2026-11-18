@@ -2,6 +2,9 @@
 // Mirrors the Python renderer (swim/visualization/ and LAYERS in swim/visualization/render.py): same layer names,
 // same colors, so the browser and the exported video.mp4 show the same thing. A new stage adds its layer in both.
 
+// Same look as swim/visualization/pool.py (there in BGR)
+const WATER = { fill: "rgba(0, 140, 255, 0.3)", line: "rgb(120, 230, 255)" };
+
 // Same colors as swim/visualization/detections.py (there in BGR)
 const KEPT = { color: "rgb(255, 0, 0)", text: "#ffffff" };
 const REJECTED = { color: "rgb(170, 170, 170)", text: "#111111" };
@@ -21,12 +24,31 @@ const TRACK_COLORS = [
 
 export const trackStyle = (trackId) => TRACK_COLORS[(trackId - 1) % TRACK_COLORS.length];
 
-// Layer name -> the stage whose saved output it draws, and the function that draws one frame of it. Pipeline order.
+// Layer name -> the stage whose saved output it draws, and the function that draws one frame of it. In drawing order
+// (as LAYERS in render.py): the pool's water underneath, then the boxes in pipeline order. `boxes: false`: the layer
+// has no boxes to list in the side panel or count in the timeline.
 export const LAYERS = {
+  pool: { stage: "pool", description: "the pool's water (pool model)", draw: drawPool, boxes: false },
   detections: { stage: "detection", description: "everything the detector found", draw: drawDetections },
   filtered: { stage: "filtering", description: "kept boxes; removed ones in gray with the reason", draw: drawDetections },
   tracks: { stage: "tracking", description: "each track in its own color with its number; untracked boxes in gray", draw: drawTracks },
 };
+
+/** Tint the pool's water blue and outline it. A frame without results has no `water`. */
+export function drawPool(ctx, frame, { px }) {
+  const polygons = frame.water ?? [];
+  if (!polygons.length) return;
+  ctx.beginPath();
+  for (const polygon of polygons) {
+    polygon.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+  }
+  ctx.fillStyle = WATER.fill;
+  ctx.fill();
+  ctx.strokeStyle = WATER.line;
+  ctx.lineWidth = 2 * px;
+  ctx.stroke();
+}
 
 /**
  * Draw every detection's box with label and score, rejected ones in gray with the reason.

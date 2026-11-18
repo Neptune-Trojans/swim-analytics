@@ -1,4 +1,4 @@
-"""Stage 3: give every detection a track_id, so the same person keeps the same number from frame to frame.
+"""Stage 4: give every detection a track_id, so the same person keeps the same number from frame to frame.
 
 Boxes the tracker didn't use (a weak box that continues no track, boxes of a track not yet confirmed) move to
 `rejected` with the reason "untracked". Track IDs are numbered 1, 2, ... in order of first appearance.
