@@ -48,7 +48,7 @@ tests/                # unit tests, same folder structure as swim/
 data/
   input/              # source swim videos
   output/             # results, one folder per video
-  labels/pool/        # labeling dataset: frames, SAM3's labels, checked labels, training masks (git-ignored)
+  labels/pool/        # labeling dataset: frames, the model's labels, checked labels, training masks (git-ignored)
   models/pool/        # trained pool models, one folder per training run (git-ignored)
 docs/                 # design documents
 notebooks/            # experiments (detection_stats.ipynb: statistics of detected boxes)
@@ -63,9 +63,10 @@ Run all commands from the repo root.
 
 ```bash
 python3 -m venv .venv
-git clone git@github.com:Neptune-Trojans/pool-segmentation.git ../pool-segmentation   # next to this repo
-.venv/bin/pip install -e ../pool-segmentation             # the pool model package, editable (changes there are live here)
 .venv/bin/pip install -e ".[app,dev,notebooks,train]"   # dependencies from pyproject.toml (app: web app, dev: tests, train: TensorBoard)
+# Only to change the pool model too: its repo next to this one, installed editable (changes there are live here)
+git clone git@github.com:Neptune-Trojans/pool-segmentation.git ../pool-segmentation
+.venv/bin/pip install -e ../pool-segmentation
 ```
 
 ### 1. Process a video
@@ -113,13 +114,13 @@ first), `--output <folder>` (another results folder), `--port 8080`. See [docs/a
 
 ### 3. Label pool frames (training data for the pool model)
 
-SAM3-LiteText labels the pool's water and lane ropes on frames picked from the videos; you check and fix them on the
-**Labels** page of the app (link at the top of the Videos page). The tools come from the pool-segmentation package
+The newest trained pool model labels the water on frames picked from new videos; you check and fix them and draw
+the lane ropes on the **Labels** page of the app (link at the top of the Videos page). The tools come from the pool-segmentation package
 (its `docs/labeling.md`); run them here, from the repo root, so they use `data/labels/pool/`.
 
 ```bash
 .venv/bin/python -m pool_segmentation.labeling pick data/input/*.MOV   # pick frames (one every 2 s, at most 25 per video)
-.venv/bin/python -m pool_segmentation.labeling auto                     # SAM3-LiteText labels them (about 2 s per frame; downloads 2 GB once)
+.venv/bin/python -m pool_segmentation.labeling auto                     # the newest model in data/models/pool/ labels their water
 .venv/bin/python -m swim.app                                            # check and fix: http://127.0.0.1:8000/labels/
 .venv/bin/python -m pool_segmentation.labeling masks                    # training masks from the checked frames
 ```
