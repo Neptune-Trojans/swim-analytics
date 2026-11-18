@@ -193,6 +193,17 @@ def test_rerun_with_changed_settings_saves_new_results(client, output):
     assert config["detection"] == {"model": "rfdetr", "size": "medium", "threshold": 0.1}  # unchanged
 
 
+def test_rerun_of_results_made_before_the_pool_stage_asks_for_the_pool(client, output):
+    # Filtering needs the water: results from before the pool stage (2026-11-17) must be processed again first
+    (output / "IMG_1" / "2_pool.json").unlink()
+
+    response = client.post("/api/videos/IMG_1/rerun", json={"settings": {"filtering": {"pool_margin": 0.02}}})
+
+    assert response.status_code == 400
+    assert "pool" in response.json()["detail"]
+    assert (output / "IMG_1" / "3_filtered.json").exists()  # the saved results stay as they were
+
+
 def test_rerun_creates_results_of_stages_not_run_yet(client, output):
     response = client.post("/api/videos/IMG_3/rerun", json={"settings": {"filtering": {"max_iou": 0.6}}})
 

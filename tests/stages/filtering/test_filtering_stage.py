@@ -95,19 +95,23 @@ def test_box_on_the_deck_does_not_remove_a_swimmer_as_its_duplicate():
 
 
 def test_pool_margin_one_turns_the_pool_filter_off():
-    on_deck = det(500, score=0.9)
+    # The box is farther from the water than the frame's height: off, not just a margin of 1 × the height
+    corner = [[(1800, 1000), (1919, 1000), (1919, 1079), (1800, 1079)]]  # water only in the lower right corner
+    far = det(0, score=0.9)  # bottom-center (50, 100): about 1970 px from that water
 
-    assert filter_frame([on_deck], LOWER_HALF, 1080, FilteringConfig(pool_margin=1)) == ([on_deck], [])
+    assert filter_frame([far], corner, 1080, FilteringConfig(pool_margin=1)) == ([far], [])
+    assert filter_frame([far], corner, 1080, FilteringConfig(pool_margin=0.99))[0] == []
 
 
 def test_filter_detections_uses_each_frames_water():
     on_top = det(500, score=0.9)  # bottom at y = 100
-    source = video([on_top], [on_top], [on_top])
+    source = video([on_top], [on_top], [on_top], [on_top])
 
-    result = filter_detections(source, pool(LOWER_HALF, WHOLE_FRAME, []), CONFIG)  # the last frame: no water found
+    # Frame 2: no water found; frame 3: missing from the pool's results. Both keep their boxes.
+    result = filter_detections(source, pool(LOWER_HALF, WHOLE_FRAME, []), CONFIG)
 
-    assert [f.detections for f in result.frames] == [[], [on_top], [on_top]]
-    assert [[r.reason for r in f.rejected] for f in result.frames] == [["outside_pool"], [], []]
+    assert [f.detections for f in result.frames] == [[], [on_top], [on_top], [on_top]]
+    assert [[r.reason for r in f.rejected] for f in result.frames] == [["outside_pool"], [], [], []]
 
 
 def test_filter_detections_per_frame():

@@ -94,6 +94,22 @@ def test_results_made_before_a_setting_existed_start_from_its_stage(processed):
     assert status["start"] == "filtering"
 
 
+def test_results_made_before_the_pool_stage_start_at_pool(processed):
+    # The layout until 2026-11-17: filtering and tracking were stages 2 and 3, config.json had no pool settings
+    video, output = processed
+    folder = output / "IMG_1"
+    (folder / "2_pool.json").unlink()
+    (folder / "3_filtered.json").rename(folder / "2_filtered.json")
+    (folder / "4_tracks.json").rename(folder / "3_tracks.json")
+    saved = json.loads((folder / "config.json").read_text())
+    del saved["pool"], saved["filtering"]["pool_margin"]
+    (folder / "config.json").write_text(json.dumps(saved))
+
+    status = results_status(video, output, DEFAULTS)
+
+    assert (status["stages"], status["start"]) == (["detection"], "pool")
+
+
 def test_a_missing_stage_starts_there(processed):
     video, output = processed
     (output / "IMG_1" / "4_tracks.json").unlink()

@@ -20,6 +20,7 @@ def test_water_outline_from_the_model_mask():
     [polygon] = water_polygons(water)
 
     assert sorted(polygon) == [(0, 40), (0, 99), (199, 40), (199, 99)]
+    assert water_polygons(np.zeros((100, 200), bool)) == []  # no water found (camera on the deck)
 
 
 def test_segment_pool_finds_water_in_every_frame(tmp_path, make_video):

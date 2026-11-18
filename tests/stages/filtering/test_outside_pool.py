@@ -25,6 +25,12 @@ def test_swimmer_at_the_far_wall_with_the_head_above_the_water_line_is_kept():
     assert filter_outside_pool([swimmer], WATER, margin=0) == ([swimmer], [])
 
 
+def test_bottom_center_on_the_water_line_is_in_the_pool():
+    on_the_line = box(800, 300, 900, 400)
+
+    assert filter_outside_pool([on_the_line], WATER, margin=0) == ([on_the_line], [])
+
+
 def test_bottom_center_within_the_margin_outside_the_water_is_kept():
     just_outside = box(100, 300, 200, 392)  # 8 px above the water line
     at_the_margin = box(300, 300, 400, 390)  # 10 px
