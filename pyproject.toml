@@ -9,14 +9,16 @@ dependencies = [
     "rfdetr>=1.9",  # >= 1.9: COCO class names are in rfdetr.assets.coco_classes
     "trackers>=2.6",  # Roboflow: ByteTrack, OC-SORT, SORT (tracking stage)
     "torch",
-    "torchvision",  # pool model: the U-Net's ResNet encoder (swim/pool_model/)
+    # The pool model and the Labels page (pool stage, the app's /labels/). While developing both:
+    # pip install -e ../pool-segmentation
+    "pool-segmentation @ git+ssh://git@github.com/Neptune-Trojans/pool-segmentation.git",
 ]
 
 [project.optional-dependencies]
 app = ["fastapi", "uvicorn"]
 dev = ["pytest", "httpx2", "websocket-client"]  # httpx2: FastAPI test client; websocket-client: drives Chrome
 notebooks = ["jupyterlab", "matplotlib", "pandas"]
-train = ["tensorboard"]  # watch the pool model's training (python -m swim.pool_model train)
+train = ["tensorboard"]  # watch the pool model's training (python -m pool_segmentation.model train)
 
 [build-system]
 requires = ["setuptools>=61"]

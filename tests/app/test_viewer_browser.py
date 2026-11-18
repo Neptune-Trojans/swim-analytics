@@ -7,8 +7,8 @@ has one box whose x position depends on the frame index, so the overlay can be r
 
 Also: changing a setting in the settings panel re-runs filtering and tracking and shows the new results.
 
-The Videos page test processes the test video with a stand-in for the detection model (conftest.py). The Labels
-page test drags a rope corner, saves, and adds a rope and water by clicking dots.
+The Videos page test processes the test video with a stand-in for the detection model (conftest.py). The Labels page
+comes from the pool-segmentation package, which tests it in the browser (its tests/app/test_labels_browser.py).
 
 Skipped without Chrome (or set CHROME_PATH). Leave it out with: pytest -m "not browser"
 """
@@ -24,13 +24,10 @@ import urllib.request
 from dataclasses import asdict
 from pathlib import Path
 
-import cv2
 import numpy as np
 import pytest
 
 from swim.app.server import create_app
-from swim.labeling.dataset import Dataset, Frame
-from swim.labeling.labels import FrameLabels
 from swim.pipeline.config import PipelineConfig
 from swim.stages.detection.types import BBox, Detection, FrameDetections, VideoDetections
 from swim.stages.pool.types import FramePool, VideoPool
@@ -45,7 +42,6 @@ FPS, WIDTH, HEIGHT, FRAMES = 30.0, 640, 360, 90
 BITS, SQUARE, SQUARE_X0, SQUARE_STEP, SQUARE_Y = 7, 64, 24, 84, 40  # frame index as squares, bit k at x0 + k * step
 BOX_X0, BOX_STEP, BOX_Y1, BOX_Y2 = 20, 6, 200, 330  # frame i's box starts at x = BOX_X0 + i * BOX_STEP
 VIDEO_NAME = "test_video"
-LABEL_A, LABEL_B = "test_000010", "test_000020"  # frames on the Labels page
 SETTINGS_VIDEO = "test_video_settings"  # a separate results folder: its test re-runs filtering
 OLD_SETTINGS_VIDEO = "test_video_old_settings"  # results filtered before filtering.pool_margin existed
 
@@ -105,18 +101,6 @@ def write_test_results(folder: Path, video: Path) -> None:
     VideoPool(str(video), FPS, WIDTH, HEIGHT, "test", [FramePool(i, i / FPS, water) for i in range(FRAMES)]).to_json(folder / "2_pool.json")
 
 
-def write_test_labels(dataset: Dataset) -> None:
-    """Two frames to label: LABEL_A with the model's labels (one water area, one rope), LABEL_B without."""
-    frames = [Frame(name, "data/input/test.MOV", i, WIDTH, HEIGHT) for i, name in ((10, LABEL_A), (20, LABEL_B))]
-    dataset.add_frames(frames)
-    dataset.images.mkdir(parents=True)
-    for f in frames:
-        cv2.imwrite(str(dataset.image_path(f.name)), np.full((HEIGHT, WIDTH, 3), 180, np.uint8))
-    dataset.save_sam3(FrameLabels(video=frames[0].video, frame_idx=10, image=frames[0].image, width=WIDTH, height=HEIGHT,
-                                  water=[[(20, 100), (620, 100), (620, 340), (20, 340)]],
-                                  ropes=[[(40, 196), (600, 178), (600, 182), (40, 204)]], source="test"))
-
-
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -147,8 +131,6 @@ def server(tmp_path_factory):
     old_settings = asdict(PipelineConfig())
     del old_settings["filtering"]["pool_margin"]
     (root / "output" / OLD_SETTINGS_VIDEO / "config.json").write_text(json.dumps(old_settings))
-
-    write_test_labels(Dataset(root / "labels"))
 
     port = free_port()
     app = create_app(root / "output", root / "input", root / "labels")
@@ -454,103 +436,3 @@ def test_videos_page_settings_stay_closed_with_changed_settings(viewer, server):
         assert js("document.getElementById('process-settings').open") is False
     finally:
         js("localStorage.removeItem('swim.videos.settings')")
-
-
-def test_labels_page_drag_save_and_add_a_rope(viewer, server):
-    js = viewer.chrome.js
-    base_url, root = server
-    dataset = Dataset(root / "labels")
-    viewer.chrome.cdp("Page.navigate", url=f"{base_url}/labels?frame={LABEL_A}")
-    assert viewer.wait_for("window.__labels?.frame() ?? null", lambda name: name == LABEL_A) == LABEL_A
-
-    def screen(x, y):  # image point -> viewport point
-        return js(f"""(() => {{ const r = document.getElementById('canvas').getBoundingClientRect();
-          const [x, y] = __labels.toScreen({x}, {y}); return [r.left + x, r.top + y]; }})()""")
-
-    def mouse(kind, point):
-        viewer.chrome.cdp("Input.dispatchMouseEvent", type=kind, x=point[0], y=point[1], button="left",
-                          buttons=1 if kind != "mouseReleased" else 0, clickCount=1)
-
-    def click(point):
-        mouse("mousePressed", point)
-        mouse("mouseReleased", point)
-
-    def hover(point):  # move the mouse without a button; the tooltip's text, or None if hidden
-        viewer.chrome.cdp("Input.dispatchMouseEvent", type="mouseMoved", x=point[0], y=point[1], buttons=0)
-        return js("(() => { const t = document.getElementById('class-tip'); return t.hidden ? null : t.textContent; })()")
-
-    # Class tooltip: the class under the mouse, as in the training mask (rope over water over other)
-    assert hover(screen(300, 300)) == "Water"
-    assert hover(screen(320, 190)) == "Lane rope 1"  # inside the rope's outline
-    assert hover(screen(10, 50)) == "Other"  # outside the pool
-    assert hover(screen(40, 196)) == "Lane rope 1 · drag to move this corner"
-
-    # Drag the rope's first corner 40 px down (in frame pixels)
-    start, target = screen(40, 196), screen(40, 236)
-    mouse("mousePressed", start)
-    for k in range(1, 6):
-        mouse("mouseMoved", [start[0] + (target[0] - start[0]) * k / 5, start[1] + (target[1] - start[1]) * k / 5])
-    mouse("mouseReleased", target)
-    x, y = js("__labels.shapes().ropes[0][0]")
-    assert abs(x - 40) < 1.5 and abs(y - 236) < 1.5
-    assert js("!document.getElementById('unsaved').hidden")
-
-    viewer.key("s", 83)
-    assert viewer.wait_for("document.getElementById('message').textContent", lambda t: t.startswith("Saved")) == "Saved as fixed."
-    saved = dataset.labels(LABEL_A)
-    assert saved.status == "fixed" and abs(saved.ropes[0][0][1] - 236) < 1.5
-    assert dataset.sam3(LABEL_A).ropes[0][0] == (40, 196)  # the model's labels stay
-
-    # + Rope: click dots around it; each dot connects to the last; a click on the first dot closes it
-    viewer.key("r", 82)
-    assert js("document.getElementById('add-rope').classList.contains('active')")  # the button shows the tool is on
-    dots = [(100, 290), (500, 280), (500, 300), (100, 310)]
-    click(screen(*dots[0]))
-    click(screen(*dots[0]))  # the same dot twice (e.g. a double-click's first click): one dot
-    click(screen(300, 330))
-    viewer.key("Backspace", 8)  # removes the last dot
-    origin = screen(0, 0)  # a drag moves the frame, and adds no dot
-    start = screen(300, 200)
-    mouse("mousePressed", start)
-    for k in range(1, 6):
-        mouse("mouseMoved", [start[0] + 12 * k, start[1] + 6 * k])
-    mouse("mouseReleased", [start[0] + 60, start[1] + 30])
-    assert np.allclose(screen(0, 0), [origin[0] + 60, origin[1] + 30], atol=0.5)
-    for dot in dots[1:]:
-        click(screen(*dot))
-    assert len(js("__labels.shapes().ropes")) == 1  # not added before it is closed
-    click(screen(*dots[0]))
-    ropes = js("__labels.shapes().ropes")
-    assert len(ropes) == 2 and not js("document.getElementById('add-rope').classList.contains('active')")
-    assert np.allclose(ropes[1], dots, atol=1.5)
-    assert hover(screen(300, 295)) == "Lane rope 2"
-
-    # Next frame (no labels yet): a rope with dots beyond the frame's edge (they land on it), Enter to finish
-    viewer.key("ArrowRight", 39)  # saves frame A's changes first
-    assert viewer.wait_for("window.__labels.frame()", lambda name: name == LABEL_B) == LABEL_B
-    assert len(dataset.labels(LABEL_A).ropes) == 2
-    viewer.key("r", 82)
-    for dot in ((50, 150), (643, 155), (643, 165), (50, 160)):
-        click(screen(*dot))
-    viewer.key("Enter", 13)
-    assert js("__labels.shapes().ropes.length") == 1
-    viewer.key("a", 65)
-    viewer.wait_for("document.getElementById('message').textContent", lambda t: t.startswith("Saved"))
-    [rope] = dataset.labels(LABEL_B).ropes
-    assert np.allclose(rope, [(50, 150), (640, 155), (640, 165), (50, 160)], atol=1.5)
-    assert rope[1][0] == rope[2][0] == 640
-
-    # + Water on frame B (no water yet): W, click 4 corners, then save without finishing the area: what is on screen
-    # is saved (the area is finished first, and the save waits for the server's merge)
-    viewer.chrome.cdp("Page.navigate", url=f"{base_url}/labels?frame={LABEL_B}")
-    viewer.wait_for("window.__labels?.frame() ?? null", lambda name: name == LABEL_B)
-    viewer.key("w", 87)
-    for point in (screen(100, 120), screen(500, 120), screen(500, 300), screen(100, 300)):
-        mouse("mousePressed", point)
-        mouse("mouseReleased", point)
-    viewer.key("s", 83)
-    viewer.wait_for("document.getElementById('message').textContent", lambda t: t.startswith("Saved"))
-    [water] = dataset.labels(LABEL_B).water
-    xs, ys = zip(*water)
-    assert len(water) == 4 and abs(min(xs) - 100) < 2 and abs(max(ys) - 300) < 2
-    assert js("__labels.shapes().water.length") == 1 and not js("document.getElementById('add-water').classList.contains('active')")

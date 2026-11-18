@@ -1,26 +1,12 @@
 import numpy as np
-import pytest
 
 from swim.pipeline.config import PoolConfig
 from swim.pipeline.runner import PipelineResult
 from swim.stages.detection.types import VideoDetections
-from swim.stages.pool.stage import find_model, segment_pool
+from swim.stages.pool.stage import segment_pool
 from swim.stages.pool.types import FramePool, VideoPool
-from swim.stages.pool.unet_model import water_polygons
 from swim.visualization.pool import draw_pool
 from swim.visualization.render import default_layers
-
-
-def test_water_outline_from_the_model_mask():
-    water = np.zeros((100, 200), bool)
-    water[40:, :] = True  # the lower part of the frame
-    water[60:70, 90:110] = False  # a swimmer inside: a hole, not kept
-    water[5:7, 5:7] = True  # a speck: dropped
-
-    [polygon] = water_polygons(water)
-
-    assert sorted(polygon) == [(0, 40), (0, 99), (199, 40), (199, 99)]
-    assert water_polygons(np.zeros((100, 200), bool)) == []  # no water found (camera on the deck)
 
 
 def test_segment_pool_finds_water_in_every_frame(tmp_path, make_video):
@@ -43,20 +29,6 @@ def test_saved_pool_round_trips(tmp_path):
     assert VideoPool.from_json(tmp_path / "2_pool.json") == pool
 
 
-def test_latest_model_is_the_newest_training_run(tmp_path):
-    for run in ("20261116-223804", "20261116-224516", "20261117-090000"):
-        (tmp_path / run).mkdir()
-    for run in ("20261116-223804", "20261116-224516"):  # the newest folder has no model.pt (stopped run)
-        (tmp_path / run / "model.pt").write_bytes(b"")
-
-    assert find_model("latest", tmp_path) == tmp_path / "20261116-224516" / "model.pt"
-    assert find_model("20261116-223804", tmp_path) == tmp_path / "20261116-223804" / "model.pt"
-    with pytest.raises(FileNotFoundError, match="No pool model"):
-        find_model("20261117-090000", tmp_path)
-    with pytest.raises(FileNotFoundError, match="train one"):
-        find_model("latest", tmp_path / "empty")
-
-
 def test_pool_layer_tints_the_water_only():
     frame = np.full((48, 64, 3), 100, np.uint8)
 
@@ -77,12 +49,13 @@ def test_default_layers_are_the_pool_and_the_last_boxes():
 
 
 def test_unet_segmenter_loads_a_training_run_and_outlines_its_water(tmp_path):
+    # The pool-segmentation package's model, as the pool stage uses it
     import torch
+    from pool_segmentation.model.network import UNet
 
-    from swim.pool_model.network import UNet
     from swim.stages.pool.unet_model import UNetSegmenter
 
-    path = tmp_path / "20261117-090000" / "model.pt"  # as `python -m swim.pool_model train` saves it (untrained here)
+    path = tmp_path / "20261117-090000" / "model.pt"  # as `python -m pool_segmentation.model train` saves it (untrained)
     path.parent.mkdir()
     torch.save({"network": UNet(2, pretrained=False).state_dict(), "classes": ["other", "water"], "encoder": "resnet18",
                 "size": [128, 64]}, path)

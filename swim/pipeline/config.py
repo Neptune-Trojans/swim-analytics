@@ -31,7 +31,7 @@ class DetectionConfig:
 @dataclass
 class PoolConfig:
     model: str = setting(
-        "latest", "Pool model: the name of a training run in data/models/pool/ (python -m swim.pool_model train), "
+        "latest", "Pool model: the name of a training run in data/models/pool/ (python -m pool_segmentation.model train), "
                   "or latest for the newest.")
 
 

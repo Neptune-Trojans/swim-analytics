@@ -237,3 +237,20 @@ def test_rerun_rejects_bad_requests(client, output, url, settings, status):
 
     assert client.post(url, json={"settings": settings}).status_code == status
     assert (output / "IMG_1" / "config.json").read_text() == before
+
+
+def test_labels_page_from_the_pool_segmentation_package_is_shown_at_labels(output, tmp_path):
+    from pool_segmentation.labeling.dataset import Dataset, Frame
+
+    labels = tmp_path / "labels"
+    Dataset(labels).add_frames([Frame("IMG_1_000010", "data/input/IMG_1.MOV", 10, 64, 48)])
+    client = TestClient(create_app(output, tmp_path / "input", labels), base_url="http://127.0.0.1")
+
+    assert client.get("/labels/").status_code == 200
+    assert client.get("/labels/static/labels.js").status_code == 200
+    listing = client.get("/labels/api/labels").json()
+    assert [f["name"] for f in listing["frames"]] == ["IMG_1_000010"]
+    assert listing["home"] == {"text": "← Videos", "url": "/"}  # the page's link back to the Videos page
+    redirect = client.get("/labels?frame=IMG_1_000010", follow_redirects=False)  # links from before it moved
+    assert redirect.headers["location"].endswith("/labels/?frame=IMG_1_000010")
+    assert 'href="/labels/"' in client.get("/").text  # the Videos page's link to it

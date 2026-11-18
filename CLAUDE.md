@@ -14,15 +14,18 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
 
 - Python venv in `.venv/`: run everything with `.venv/bin/python`
 - Dependencies are in `pyproject.toml`: `.venv/bin/pip install -e ".[app,dev,notebooks,train]"`
+- The pool model, its training data tools and the Labels page are the **pool-segmentation** package, a separate
+  repo checked out next to this one (`../pool-segmentation`, its own `CLAUDE.md`), installed editable in this venv
+  (`.venv/bin/pip install -e ../pool-segmentation`): changes there are live here. Changes to it go in that repo
 
 ## Conventions
 
 - Pipeline design and build progress: `docs/pipeline.md`. Keep its "Build order" checkboxes up to date.
 - All processing goes through `run_pipeline()` in `swim/pipeline/runner.py`, run with `python -m swim.run`.
-  No separate scripts with their own processing loops. Exceptions, not part of the pipeline: training data for
-  models is made with `python -m swim.labeling` (`swim/labeling/`, design in `docs/labeling.md`), and the pool
-  segmentation network is trained with `python -m swim.pool_model train` (`swim/pool_model/`, design in
-  `docs/pool-model.md`; runs go to `data/models/pool/`, git-ignored)
+  No separate scripts with their own processing loops. Exceptions, not part of the pipeline: the pool model's
+  training data (`python -m pool_segmentation.labeling`) and training (`python -m pool_segmentation.model train`;
+  runs go to `data/models/pool/`, git-ignored), both from the pool-segmentation package, run here from the repo
+  root so they use `data/labels/pool/` and `data/models/pool/`
 - `swim/pipeline/` is the runner (order, save/load, settings); `swim/stages/` holds the steps
 - One folder per stage under `swim/stages/` (`detection/`, `pool/`, `filtering/`, `tracking/`, later `swimmer/`, `pose/`, `metrics/`),
   each with: `types.py` (output data classes + model contract, no model-specific code; only if the stage has its
@@ -35,8 +38,8 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
   (the viewer's settings panel shows it, and checks the range), and its drawing layer to `swim/visualization/` + `LAYERS` in `render.py` and to
   `swim/app/static/layers.js` (`LAYERS` there too: same layer name and look, for the browser viewer)
 - `swim/app/`: the local web app (`python -m swim.app`, design in `docs/app.md`): Videos page (process the videos of a
-  folder in the background, `jobs.py`), Play page (watch results) and Labels page (check and fix training labels,
-  `docs/labeling.md`). Processing goes through `run_pipeline()` there
+  folder in the background, `jobs.py`), Play page (watch results) and, at `/labels/`, the pool-segmentation package's
+  Labels page (check and fix training labels; mounted in `server.py`). Processing goes through `run_pipeline()` there
   too (its `progress` callback reports frames and cancels). Plain HTML / CSS / JS (ES modules), no build step, no
   framework
 - Import heavy model packages (torch, rfdetr) inside the function that creates the model, so `--render-only` and
@@ -53,7 +56,6 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
   `-m "not browser"`. Run it after changing `swim/app/static/`
 - Tests that run detection use the stand-in model in `tests/app/conftest.py` (`fake_model`), not RF-DETR. The pool
   stage always uses a stand-in in tests (`tests/conftest.py`, autouse): no test loads a trained pool model
-- Tests that train the pool model use tiny frames, the CPU and `pretrained=False` (no weight download)
 - Short clip: `data/input/IMG_4886.MOV` (93 frames, one swimmer); several persons: `IMG_4884.MOV`
 - Write test outputs to a temp folder (`--output <tmp>`), not `data/output/` (the user's own results) or
   `data/labels/` (the user's labeling dataset: checked labels are hand work)

@@ -2,7 +2,8 @@
 
 _Agreed: 2026-11-02 (Play page), 2026-11-03 (Videos page). Status: both pages built, steps 1–8 (see "Build order")._
 
-Goal: a local web app with two pages (plus a Labels page for training data, designed in `docs/labeling.md`):
+Goal: a local web app with two pages (plus, at `/labels/`, the Labels page for training data: it comes from the
+pool-segmentation package, `../pool-segmentation/docs/labeling.md`):
 
 - **Videos** (the main page, `/`): pick a folder, see its videos and whether each has results and whether those are up
   to date; process them (the whole pipeline) in the background, follow the progress, open them in Play.
@@ -116,15 +117,13 @@ JS (`swim/app/static/layers.js`). Each new stage therefore adds a drawing layer 
 ```
 swim/app/
   __main__.py      # python -m swim.app [--input data/input] [--output data/output] [--port 8000]
-  server.py        # FastAPI app: the API above, the two pages
+  server.py        # FastAPI app: the API above, the two pages; mounts the Labels page (pool-segmentation) at /labels/
   library.py       # videos in a folder, thumbnails, state of their results (results_status)
   jobs.py          # JobQueue: background processing through run_pipeline(), progress, cancel
   static/
     videos.html    # Videos page (/)
     videos.js
     play.html      # Play page (/play)
-    labels.html    # Labels page (/labels, docs/labeling.md)
-    labels.js
     viewer.js      # Play page: loading, player, controls, timeline, side panel, settings
     layers.js      # one drawing function per layer (mirrors swim/visualization/ + LAYERS in render.py)
     settings.js    # settings form rows, shared by both pages
@@ -135,8 +134,7 @@ tests/app/
   test_server.py   # FastAPI TestClient: listing, JSON, video with range requests, library, thumbnails, host check
   test_library.py  # folder listing, results state, thumbnails
   test_jobs.py     # processing: new video, update from the needed stage, queue, cancel, refusals
-  test_labels_api.py  # Labels page API: list, labels, image, save, refusals
-  test_viewer_browser.py  # headless Chrome: Play page frame accuracy and settings; Videos page process + open; Labels page edit + save
+  test_viewer_browser.py  # headless Chrome: Play page frame accuracy and settings; Videos page process + open
 ```
 
 - Plain HTML / CSS / JS (ES modules), no build step, no JS framework.

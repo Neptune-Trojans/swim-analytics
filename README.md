@@ -2,8 +2,10 @@
 
 Process a swimming video and overlay analysis layers (skeleton, joint angles, velocity, speed) on it.
 
-The analysis is one pipeline of stages: detection → filtering → tracking → swimmer → pose → metrics
-(implemented: detection, filtering, tracking).
+The analysis is one pipeline of stages: detection → pool → filtering → tracking → swimmer → pose → metrics
+(implemented: detection, pool, filtering, tracking). The pool's water comes from our own segmentation model, in the
+separate [pool-segmentation](https://github.com/Neptune-Trojans/pool-segmentation) package (model, training data
+tools, Labels page).
 See [docs/pipeline.md](docs/pipeline.md) for the design and which stages are implemented.
 
 ## Structure
@@ -21,7 +23,7 @@ swim/
       rfdetr_detector.py
     pool/             #   stage 2: the pool's water in every frame (the pool model), as polygons
       stage.py        #     segment_pool(): runs the model frame by frame
-      unet_model.py   #     the trained U-Net (swim/pool_model/) -> water outline
+      unet_model.py   #     the trained U-Net (pool-segmentation package) -> water outline
     filtering/        #   stage 3: remove problematic detections (kept as "rejected" with the reason)
       stage.py        #     filter_detections(): runs the filters in order
       min_score.py    #     low confidence
@@ -41,9 +43,7 @@ swim/
     server.py         #   the API: folders and videos, processing jobs, video + stage results
     library.py        #   videos in a folder and the state of their results
     jobs.py           #   background processing (one video at a time) through run_pipeline()
-    static/           #   the pages: videos.js (Videos), viewer.js (Play), labels.js (Labels), layers.js (drawing layers)
-  labeling/           # training data for the pool model: python -m swim.labeling (docs/labeling.md)
-  pool_model/         # the pool segmentation network (U-Net): python -m swim.pool_model train (docs/pool-model.md)
+    static/           #   the pages: videos.js (Videos), viewer.js (Play), layers.js (drawing layers)
 tests/                # unit tests, same folder structure as swim/
 data/
   input/              # source swim videos
@@ -63,6 +63,8 @@ Run all commands from the repo root.
 
 ```bash
 python3 -m venv .venv
+git clone git@github.com:Neptune-Trojans/pool-segmentation.git ../pool-segmentation   # next to this repo
+.venv/bin/pip install -e ../pool-segmentation             # the pool model package, editable (changes there are live here)
 .venv/bin/pip install -e ".[app,dev,notebooks,train]"   # dependencies from pyproject.toml (app: web app, dev: tests, train: TensorBoard)
 ```
 
@@ -112,22 +114,23 @@ first), `--output <folder>` (another results folder), `--port 8080`. See [docs/a
 ### 3. Label pool frames (training data for the pool model)
 
 SAM3-LiteText labels the pool's water and lane ropes on frames picked from the videos; you check and fix them on the
-**Labels** page of the app (link at the top of the Videos page). See [docs/labeling.md](docs/labeling.md).
+**Labels** page of the app (link at the top of the Videos page). The tools come from the pool-segmentation package
+(its `docs/labeling.md`); run them here, from the repo root, so they use `data/labels/pool/`.
 
 ```bash
-.venv/bin/python -m swim.labeling pick data/input/*.MOV   # pick frames (one every 2 s, at most 25 per video)
-.venv/bin/python -m swim.labeling auto                     # SAM3-LiteText labels them (about 2 s per frame; downloads 2 GB once)
-.venv/bin/python -m swim.app                               # check and fix: http://127.0.0.1:8000/labels
-.venv/bin/python -m swim.labeling masks                    # training masks from the checked frames
+.venv/bin/python -m pool_segmentation.labeling pick data/input/*.MOV   # pick frames (one every 2 s, at most 25 per video)
+.venv/bin/python -m pool_segmentation.labeling auto                     # SAM3-LiteText labels them (about 2 s per frame; downloads 2 GB once)
+.venv/bin/python -m swim.app                                            # check and fix: http://127.0.0.1:8000/labels/
+.venv/bin/python -m pool_segmentation.labeling masks                    # training masks from the checked frames
 ```
 
 ### 4. Train the pool model
 
 A U-Net learns the pool's water (water / other) from the checked frames; about 5 minutes on a MacBook (M4 Pro). See
-[docs/pool-model.md](docs/pool-model.md).
+the pool-segmentation package's `docs/model.md`. The pipeline's pool stage uses the newest run (setting `pool.model`).
 
 ```bash
-.venv/bin/python -m swim.pool_model train   # a run folder in data/models/pool/: model.pt, summary.json, val/ pictures
+.venv/bin/python -m pool_segmentation.model train   # a run folder in data/models/pool/: model.pt, summary.json, val/ pictures
 .venv/bin/tensorboard --logdir data/models/pool   # watch the progress: http://localhost:6006
 ```
 

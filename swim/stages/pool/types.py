@@ -1,7 +1,7 @@
 """Pool data types and the PoolSegmenter contract.
 
 The stable output format of stage 2 (pool): the pool's water in every frame, as polygons in pixel coordinates of the
-original frame (like the labels in docs/labeling.md). Segmenter implementations live next to this file.
+original frame (like the pool-segmentation package's labels). Segmenter implementations live next to this file.
 """
 
 from __future__ import annotations

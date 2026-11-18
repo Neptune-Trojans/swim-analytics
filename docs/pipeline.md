@@ -24,7 +24,7 @@ Videos can also be processed, and their outputs watched, in the browser (the app
 | # | Stage | Input | Output | Needs video frames? |
 |---|---|---|---|---|
 | 1 | **Detection** | video | `VideoDetections`: all persons per frame | yes |
-| 2 | **Pool** | video | `VideoPool`: the pool's water per frame, as polygons (the pool model, `docs/pool-model.md`) | yes |
+| 2 | **Pool** | video | `VideoPool`: the pool's water per frame, as polygons (the pool model: pool-segmentation package) | yes |
 | 3 | **Filtering** | detections | Same format; removed detections are kept with the **reason** they were removed | no |
 | 4 | **Tracking** | detections | Same format, with `track_id` filled in; boxes the tracker didn't use in `rejected` as "untracked" | no |
 | 5 | **Swimmer** | tracks | One track: our swimmer, with short gaps filled | no |
@@ -33,9 +33,9 @@ Videos can also be processed, and their outputs watched, in the browser (the app
 
 Stage names (used on the command line): `detection`, `pool`, `filtering`, `tracking`, `swimmer`, `pose`, `metrics`.
 
-The pool sits between detection and filtering (2026-11-17): filtering will use it to drop boxes outside the water,
-and in that place, changing filtering or tracking settings (the Play page's Apply) doesn't re-run it. Nothing uses
-its output yet. Before 2026-11-17, filtering and tracking were stages 2 and 3 (`2_filtered.json`, `3_tracks.json`):
+The pool sits between detection and filtering (2026-11-17): filtering uses it to drop boxes outside the water
+(`outside_pool`, since 2026-11-18), and in that place, changing filtering or tracking settings (the Play page's Apply)
+doesn't re-run it. Before 2026-11-17, filtering and tracking were stages 2 and 3 (`2_filtered.json`, `3_tracks.json`):
 such results show "Needs update", and the old files are removed when a stage is saved.
 
 ## Design rules
@@ -69,7 +69,7 @@ swim/
     config.py        #   settings for every stage (model, thresholds, ...)
   stages/            # the steps, one folder each, in pipeline order
     detection/       #   1  types.py, stage.py, rfdetr_detector.py
-    pool/            #   2  types.py, stage.py, unet_model.py (the network itself: swim/pool_model/)
+    pool/            #   2  types.py, stage.py, unet_model.py (the network itself: the pool-segmentation package)
     filtering/       #   3  stage.py, filter rules (min_score.py, outside_pool.py, duplicates.py)
     tracking/        #   4  stage.py, roboflow_trackers.py (ByteTrack, OC-SORT, SORT)
     swimmer/         #   5  stage.py: pick the swimmer's track, join its pieces, fill gaps
@@ -130,7 +130,7 @@ Each step leaves a pipeline that works end to end.
   order of first appearance; boxes not used in `rejected` as "untracked"; `tracks` layer (Python + viewer); settings
   in the viewer's panel. Unit tests in `tests/stages/tracking/`, runner tests in `tests/pipeline/`.
 - [x] Pool (added 2026-11-17 as stage 2): the water per frame from the pool model trained on our frames
-  (`docs/pool-model.md`), saved as polygons; `pool` layer (Python + viewer), drawn under the boxes and shown by
+  (pool-segmentation package, its `docs/model.md`), saved as polygons; `pool` layer (Python + viewer), drawn under the boxes and shown by
   default. Unit tests in `tests/stages/pool/`; tests use a stand-in model (`tests/conftest.py`).
 - [x] Filtering uses the pool (2026-11-18): `outside_pool` filter, between `min_score` and `duplicate`. Unit tests in
   `tests/stages/filtering/test_outside_pool.py`.
@@ -148,6 +148,11 @@ Each step leaves a pipeline that works end to end.
   the threshold is only a score cut. Tracking (ByteTrack) uses low-score boxes to continue tracks of a half-submerged
   swimmer, so they must reach it; duplicates are removed by the filtering stage's NMS (`max_iou`). `min_score` stays
   as a setting (viewer settings panel) for trackers without a low-score pass.
+- The pool model in its own repo (2026-11-18): **pool-segmentation** (`../pool-segmentation`, pip package
+  `pool_segmentation`) holds the network, its training, the labeling tools and the Labels page; it knows nothing about
+  swimmers, so others can use it for any pool video. This repo depends on it (`pyproject.toml`), uses `PoolModel` and
+  `find_model` in `swim/stages/pool/` and mounts its Labels page at `/labels/`. The data stays here
+  (`data/labels/pool/`, `data/models/pool/`); its commands run from this repo's root.
 - People outside the pool: filter **`outside_pool`** (2026-11-18). A box is removed when its bottom-center (where the
   person floats or stands) is more than `pool_margin` × the frame height outside the pool stage's water; a frame
   without water keeps all its boxes. Measured on IMG_5198 (1080p, 19,827 boxes kept by the other filters):
