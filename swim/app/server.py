@@ -52,7 +52,7 @@ class ProcessRequest(BaseModel):
 
 
 def create_app(output_dir: str | Path = "data/output", input_dir: str | Path = "data/input",
-               labels_dir: str | Path = "data/labels/pool") -> FastAPI:
+               labels_dir: str | Path = "../pool-segmentation/data/labels/pool") -> FastAPI:
     output_dir = Path(output_dir)
     input_dir = Path(input_dir)
     app = FastAPI(title="swim-analytics")

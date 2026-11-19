@@ -11,8 +11,9 @@ def main() -> None:
                                      description="Process videos and watch the results in the browser.")
     parser.add_argument("--input", default="data/input", help="Folder the Videos page opens first (default: data/input)")
     parser.add_argument("--output", default="data/output", help="Results root folder, as for swim.run (default: data/output)")
-    parser.add_argument("--labels", default="data/labels/pool",
-                        help="Labeling dataset for the Labels page (default: data/labels/pool)")
+    parser.add_argument("--labels", default="../pool-segmentation/data/labels/pool",
+                        help="Labeling dataset for the Labels page, in the pool-segmentation repo next to this one "
+                             "(default: ../pool-segmentation/data/labels/pool)")
     parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
     args = parser.parse_args()
 

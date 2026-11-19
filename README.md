@@ -115,14 +115,15 @@ first), `--output <folder>` (another results folder), `--port 8080`. See [docs/a
 ### 3. Label pool frames (training data for the pool model)
 
 The newest trained pool model labels the water on frames picked from new videos; you check and fix them and draw
-the lane ropes on the **Labels** page of the app (link at the top of the Videos page). The tools come from the pool-segmentation package
-(its `docs/labeling.md`); run them here, from the repo root, so they use `data/labels/pool/`.
+the lane ropes on the **Labels** page of the app (link at the top of the Videos page). The tools come from the
+pool-segmentation package (its `docs/labeling.md`); the dataset lives in that repo, `../pool-segmentation/data/labels/pool/`.
+Run them here, from the repo root (the trained models are in `data/models/pool/`):
 
 ```bash
-.venv/bin/python -m pool_segmentation.labeling pick data/input/*.MOV   # pick frames (one every 2 s, at most 25 per video)
-.venv/bin/python -m pool_segmentation.labeling auto                     # the newest model in data/models/pool/ labels their water
-.venv/bin/python -m swim.app                                            # check and fix: http://127.0.0.1:8000/labels/
-.venv/bin/python -m pool_segmentation.labeling masks                    # training masks from the checked frames
+DATASET=../pool-segmentation/data/labels/pool
+.venv/bin/python -m pool_segmentation.labeling --dataset $DATASET pick data/input/*.MOV   # pick frames (one every 2 s, at most 25 per video)
+.venv/bin/python -m pool_segmentation.labeling --dataset $DATASET auto   # the newest model in data/models/pool/ labels their water
+.venv/bin/python -m swim.app                                             # check and fix: http://127.0.0.1:8000/labels/
 ```
 
 ### 4. Train the pool model
@@ -131,7 +132,7 @@ A U-Net learns the pool's water (water / other) from the checked frames; about 5
 the pool-segmentation package's `docs/model.md`. The pipeline's pool stage uses the newest run (setting `pool.model`).
 
 ```bash
-.venv/bin/python -m pool_segmentation.model train   # a run folder in data/models/pool/: model.pt, summary.json, val/ pictures
+.venv/bin/python -m pool_segmentation.model train --dataset ../pool-segmentation/data/labels/pool   # a run folder in data/models/pool/: model.pt, summary.json, val/ pictures
 .venv/bin/tensorboard --logdir data/models/pool   # watch the progress: http://localhost:6006
 ```
 

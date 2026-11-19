@@ -23,9 +23,10 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
 - Pipeline design and build progress: `docs/pipeline.md`. Keep its "Build order" checkboxes up to date.
 - All processing goes through `run_pipeline()` in `swim/pipeline/runner.py`, run with `python -m swim.run`.
   No separate scripts with their own processing loops. Exceptions, not part of the pipeline: the pool model's
-  training data (`python -m pool_segmentation.labeling`) and training (`python -m pool_segmentation.model train`;
-  runs go to `data/models/pool/`, git-ignored), both from the pool-segmentation package, run here from the repo
-  root so they use `data/labels/pool/` and `data/models/pool/`
+  training data (`python -m pool_segmentation.labeling`) and training (`python -m pool_segmentation.model train`),
+  both from the pool-segmentation package. The labeling dataset lives in that repo
+  (`../pool-segmentation/data/labels/pool/`, git-ignored there); the trained models stay here in `data/models/pool/`
+  (git-ignored), where the pool stage finds them
 - `swim/pipeline/` is the runner (order, save/load, settings); `swim/stages/` holds the steps
 - One folder per stage under `swim/stages/` (`detection/`, `pool/`, `filtering/`, `tracking/`, later `swimmer/`, `pose/`, `metrics/`),
   each with: `types.py` (output data classes + model contract, no model-specific code; only if the stage has its
@@ -58,7 +59,7 @@ Swimming video analysis: detect the swimmer, then keypoints, metrics and overlay
   stage always uses a stand-in in tests (`tests/conftest.py`, autouse): no test loads a trained pool model
 - Short clip: `data/input/IMG_4886.MOV` (93 frames, one swimmer); several persons: `IMG_4884.MOV`
 - Write test outputs to a temp folder (`--output <tmp>`), not `data/output/` (the user's own results) or
-  `data/labels/` (the user's labeling dataset: checked labels are hand work)
+  `../pool-segmentation/data/labels/` (the user's labeling dataset: checked labels are hand work)
 - Look at a few output frames, not only whether the script ran
 
 ## Workflow

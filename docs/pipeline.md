@@ -151,8 +151,9 @@ Each step leaves a pipeline that works end to end.
 - The pool model in its own repo (2026-11-18): **pool-segmentation** (`../pool-segmentation`, pip package
   `pool_segmentation`) holds the network, its training, the labeling tools and the Labels page; it knows nothing about
   swimmers, so others can use it for any pool video. This repo depends on it (`pyproject.toml`), uses `PoolModel` and
-  `find_model` in `swim/stages/pool/` and mounts its Labels page at `/labels/`. The data stays here
-  (`data/labels/pool/`, `data/models/pool/`); its commands run from this repo's root.
+  `find_model` in `swim/stages/pool/` and mounts its Labels page at `/labels/`. The labeling dataset lives in that
+  repo (`../pool-segmentation/data/labels/pool/`, since 2026-11-18); the trained models stay here
+  (`data/models/pool/`), where the pool stage finds them.
 - People outside the pool: filter **`outside_pool`** (2026-11-18). A box is removed when its bottom-center (where the
   person floats or stands) is more than `pool_margin` × the frame height outside the pool stage's water; a frame
   without water keeps all its boxes. Measured on IMG_5198 (1080p, 19,827 boxes kept by the other filters):
